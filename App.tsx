@@ -88,7 +88,7 @@ const performanceHeaderMapping: { [key: string]: keyof ClientDataRecord } = {
 };
 
 const accountDetailsHeaderMapping: { [key: string]: keyof AccountDetailsRecord } = {
-    'Clients': 'ClientName', 'Client Name': 'ClientName', 'Website': 'Website', 'Google Ads': 'Google Ads',
+    'Clients': 'ClientName', 'Client Name': 'ClientName', 'Website': 'Website', 'Google Ads': 'Google Ads', 'Google Ads ID': 'Google Ads ID',
     'GMC': 'GMC', 'MID': 'GMC', 'Current SEO Package': 'CurrentSEOPackage', 'Auto Group': 'AutoGroup',
     'Brands': 'Brands',
     'Bing': 'Bing',

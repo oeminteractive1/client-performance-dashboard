@@ -97,22 +97,33 @@ app.post('/api/campaigns', async (req, res) => {
 
     const results = await customer.query(query);
     
-    const formattedCampaigns = results.map(row => ({
-      campaign: {
-        id: row.campaign.id,
-        name: row.campaign.name,
-        status: row.campaign.status,
-        campaignBudget: `customers/${customerId}/campaignBudgets/${row.campaign.id}`
-      },
-      campaignBudget: {
-        amountMicros: row.campaign_budget?.amount_micros || 0
-      },
-      metrics: {
-        clicks: row.metrics?.clicks || 0,
-        impressions: row.metrics?.impressions || 0,
-        costMicros: row.metrics?.cost_micros || 0
-      }
-    }));
+    console.log('Raw campaign data:', results.slice(0, 2)); // Log first 2 campaigns
+    
+    const formattedCampaigns = results.map(row => {
+      // Convert status number to text
+      const statusMap = {
+        2: 'ENABLED',
+        3: 'PAUSED',
+        4: 'REMOVED'
+      };
+      
+      return {
+        campaign: {
+          id: row.campaign.id,
+          name: row.campaign.name,
+          status: statusMap[row.campaign.status] || 'UNKNOWN',
+          campaignBudget: `customers/${customerId}/campaignBudgets/${row.campaign.id}`
+        },
+        campaignBudget: {
+          amountMicros: row.campaign_budget?.amount_micros || 0
+        },
+        metrics: {
+          clicks: row.metrics?.clicks || 0,
+          impressions: row.metrics?.impressions || 0,
+          costMicros: row.metrics?.cost_micros || 0
+        }
+      };
+    });
 
     res.json({ 
       success: true, 

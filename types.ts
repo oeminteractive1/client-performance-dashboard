@@ -14,6 +14,7 @@ export interface UserRecord {
 export interface ClientDataRecord {
   ClientName: string;
   Dashboard?: string;
+  'Google Ads ID'?: string;
   Month: string;
   Start?: string;
   End?: string;
@@ -54,6 +55,7 @@ export interface AccountDetailsRecord {
   ClientName: string;
   Website?: string;
   'Google Ads'?: string;
+  'Google Ads ID'?: string;
   GMC?: string;
   CurrentSEOPackage?: string;
   AutoGroup?: string;

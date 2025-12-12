@@ -1,9 +1,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { AccountDetailsRecord } from '../types';
+import { AccountDetailsRecord, GoogleAdsRobotToolState } from '../types';
 
-// Define the state for this tool from App.tsx
-interface GoogleAdsRobotToolState {
-    selectedClient: string;
+interface Campaign {
+    campaign: {
+        id: string;
+        name: string;
+        status: string;
+    };
+    campaignBudget: {
+        amountMicros: number;
+    };
+    metrics: {
+        clicks: number;
+        impressions: number;
+        costMicros: number;
+    };
 }
 
 interface GoogleAdsRobotToolProps {
@@ -11,106 +22,93 @@ interface GoogleAdsRobotToolProps {
     gapiClient: any;
     isSignedIn: boolean;
     toolState: GoogleAdsRobotToolState;
-    onStateChange: (newState: Partial<GoogleAdsRobotToolState>) => void;
+    onStateChange: (newState: GoogleAdsRobotToolState) => void;
 }
 
-interface Campaign {
-    id: string;
-    name: string;
-    resourceName: string;
-    status: 'ENABLED' | 'PAUSED';
-    budgetResourceName: string;
-    budgetAmountMicros: number;
-    stats?: {
-        clicks?: number;
-        impressions?: number;
-        cost?: number;
-    };
-}
-
-/**
- * Parses a Google API error object to extract a detailed, human-readable message.
- * @param error The error object from a caught exception.
- * @returns A detailed error string.
- */
-const getGoogleAdsApiErrorMessage = (error: any): string => {
-    if (!error) return 'An unknown error occurred.';
-
-    // This handles the gapiClient.request error structure.
-    const apiError = error.result?.error;
-    if (apiError) {
-        const mainMessage = apiError.message || 'An unknown API error occurred.';
-        // Google Ads API often has more specific details nested here
-        const adsErrorDetails = apiError.details?.[0]?.errors?.[0]?.message;
-        return adsErrorDetails ? `${mainMessage} Details: ${adsErrorDetails}` : mainMessage;
-    }
-
-    // This handles plain Error objects thrown from our helper function.
-    if (error.message) {
-        return error.message;
-    }
-
-    // Fallback for other weird error shapes
-    try {
-        const stringified = JSON.stringify(error);
-        return stringified === '{}' ? 'An unknown error occurred.' : stringified;
-    } catch {
-        return 'An unknown error occurred while processing the error object.';
-    }
-};
-
-
-const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({ allAccountDetails, gapiClient, isSignedIn, toolState, onStateChange }) => {
+const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({ 
+    allAccountDetails, 
+    gapiClient, 
+    isSignedIn, 
+    toolState, 
+    onStateChange 
+}) => {
     const { selectedClient } = toolState;
-
+    
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [log, setLog] = useState<string[]>([]);
-    const [displayCustomerId, setDisplayCustomerId] = useState<string | null>(null);
-    const [googleAdsAccounts, setGoogleAdsAccounts] = useState<{id: number, name: string}[]>([]);
+    const [campaignFilter, setCampaignFilter] = useState<'all' | 'pmax' | 'search'>('all');
 
-    // Fetch Google Ads accounts on component mount
-    useEffect(() => {
-        if (isSignedIn) {
-            fetchGoogleAdsAccounts();
-        }
-    }, [isSignedIn]);
+    // Get Google Ads ID for selected client
+    const getGoogleAdsId = (clientName: string): string | null => {
+        if (!clientName) return null;
+        
+        const client = allAccountDetails.find(c => c.ClientName === clientName);
+        if (!client) return null;
+        
+        const adsId = client['Google Ads ID'];
+        if (!adsId) return null;
+        
+        // Remove hyphens for API usage
+        return adsId.replace(/-/g, '');
+    };
 
-    // Clear state and update display ID when client changes
+    const currentGoogleAdsId = useMemo(() => {
+        return selectedClient ? getGoogleAdsId(selectedClient) : null;
+    }, [selectedClient, allAccountDetails]);
+
+    // Auto-fetch campaigns when client changes
     useEffect(() => {
-        if (selectedClient) {
-            const id = getCustomerId(selectedClient);
-            setDisplayCustomerId(id);
-            // Also clear previous results
-            setCampaigns([]);
-            setLog([]);
+        if (selectedClient && currentGoogleAdsId) {
+            fetchCampaigns();
         } else {
-            setDisplayCustomerId(null);
             setCampaigns([]);
-            setLog([]);
         }
-    }, [selectedClient, allAccountDetails, googleAdsAccounts]); // Dependencies for getCustomerId
+    }, [selectedClient, currentGoogleAdsId]);
+
+    // Get all clients from Settings tab
+    const availableClients = useMemo(() => {
+        return allAccountDetails
+            .map(client => client.ClientName)
+            .filter(Boolean)
+            .sort();
+    }, [allAccountDetails]);
+
+    // Filter campaigns based on type
+    const filteredCampaigns = useMemo(() => {
+        if (campaignFilter === 'all') return campaigns;
+        
+        return campaigns.filter(campaign => {
+            const name = campaign.campaign.name.toLowerCase();
+            if (campaignFilter === 'pmax') {
+                return name.includes('perf max') || name.includes('pmax') || name.includes('performance max');
+            } else if (campaignFilter === 'search') {
+                return name.includes('search') && !name.includes('perf max') && !name.includes('pmax');
+            }
+            return true;
+        });
+    }, [campaigns, campaignFilter]);
 
     const addToLog = (message: string) => {
         setLog(prev => [`[${new Date().toLocaleTimeString()}] ${message}`, ...prev]);
     };
-    
-    /**
-     * Calls the backend API for Google Ads operations.
-     * @param endpoint The API endpoint to call.
-     * @param payload The request payload.
-     * @returns The API response.
-     */
-    const callBackendAPI = async (endpoint: string, payload: any) => {
-        const BACKEND_URL = 'http://localhost:3002';
-        
+
+    const fetchCampaigns = async () => {
+        if (!currentGoogleAdsId) {
+            addToLog('No Google Ads ID available');
+            return;
+        }
+
+        setIsLoading(true);
+        addToLog(`Fetching campaigns for customer ID: ${currentGoogleAdsId}`);
+
         try {
-            const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+            const response = await fetch('http://localhost:3002/api/campaigns', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ customerId: currentGoogleAdsId })
             });
 
             if (!response.ok) {
@@ -124,337 +122,307 @@ const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({ allAccountDetai
                 throw new Error(result.error || 'Unknown error from backend');
             }
 
-            return result;
+            setCampaigns(result.results || []);
+            addToLog(`Loaded ${result.results?.length || 0} campaigns`);
         } catch (error) {
-            console.error('Backend API call failed:', error);
-            throw error;
-        }
-    };
-
-    /**
-     * Fetches Google Ads campaign data via backend API.
-     * @param customerId The Google Ads customer ID.
-     * @returns Campaign data from Google Ads API.
-     */
-    const fetchCampaignsFromAds = async (customerId: string) => {
-        return await callBackendAPI('/api/campaigns', { customerId });
-    };
-
-    /**
-     * Pauses a Google Ads campaign.
-     * @param customerId The Google Ads customer ID.
-     * @param campaignId The campaign ID to pause.
-     */
-    const pauseCampaign = async (customerId: string, campaignId: string) => {
-        return await callBackendAPI('/api/campaigns/pause', { customerId, campaignId });
-    };
-
-    /**
-     * Enables a Google Ads campaign.
-     * @param customerId The Google Ads customer ID.
-     * @param campaignId The campaign ID to enable.
-     */
-    const enableCampaign = async (customerId: string, campaignId: string) => {
-        return await callBackendAPI('/api/campaigns/enable', { customerId, campaignId });
-    };
-
-    /**
-     * Updates a campaign budget.
-     * @param customerId The Google Ads customer ID.
-     * @param campaignId The campaign ID to update.
-     * @param budgetAmount The new budget amount in dollars.
-     */
-    const updateCampaignBudget = async (customerId: string, campaignId: string, budgetAmount: number) => {
-        return await callBackendAPI('/api/campaigns/budget', { customerId, campaignId, budgetAmount });
-    };
-
-    /**
-     * Fetches Google Ads accounts from the backend.
-     */
-    const fetchGoogleAdsAccounts = async () => {
-        try {
-            const response = await fetch('http://localhost:3002/api/accounts');
-            const data = await response.json();
-            if (data.success) {
-                setGoogleAdsAccounts(data.results);
-            }
-        } catch (error) {
-            console.error('Failed to fetch Google Ads accounts:', error);
-        }
-    };
-
-
-    const getCustomerId = (clientName: string): string | null => {
-        // First try to match by name in the real Google Ads accounts
-        const adsAccount = googleAdsAccounts.find(account => 
-            account.name && account.name.toLowerCase() === clientName.toLowerCase()
-        );
-        
-        if (adsAccount) {
-            return adsAccount.id.toString();
-        }
-        
-        // Fallback to spreadsheet data if account not found
-        const details = allAccountDetails.find(c => c.ClientName === clientName);
-        const adsId = details?.['Google Ads'];
-        
-        if (!adsId || !adsId.trim() || adsId.trim() === '-') {
-            return null;
-        }
-    
-        let customerId: string | null = null;
-    
-        try {
-            if (adsId.startsWith('http')) {
-                const url = new URL(adsId);
-                customerId = url.searchParams.get('ocid') || url.searchParams.get('cid');
-            } else {
-                customerId = adsId;
-            }
-        } catch (e) {
-            console.warn("Could not parse Google Ads ID as a URL, treating as raw ID:", adsId);
-            customerId = adsId;
-        }
-    
-        return customerId ? customerId.replace(/-/g, '') : null;
-    };
-    
-    const clientsWithAds = useMemo(() => {
-        return allAccountDetails
-            .filter(c => c['Google Ads'] && c['Google Ads'].trim() && c['Google Ads'].trim() !== '-')
-            .sort((a, b) => a.ClientName.localeCompare(b.ClientName));
-    }, [allAccountDetails]);
-    
-    const handleCampaignAction = async (action: 'pause' | 'enable' | 'updateBudget', campaign: Campaign, newBudget?: number) => {
-        if (!selectedClient) return;
-        
-        const customerId = getCustomerId(selectedClient);
-        if (!customerId) return;
-        
-        setIsLoading(true);
-        
-        try {
-            let result;
-            switch (action) {
-                case 'pause':
-                    result = await pauseCampaign(customerId, campaign.id);
-                    addToLog(`✅ Successfully paused campaign: ${campaign.name}`);
-                    break;
-                case 'enable':
-                    result = await enableCampaign(customerId, campaign.id);
-                    addToLog(`✅ Successfully enabled campaign: ${campaign.name}`);
-                    break;
-                case 'updateBudget':
-                    if (newBudget) {
-                        result = await updateCampaignBudget(customerId, campaign.id, newBudget);
-                        addToLog(`✅ Successfully updated budget for ${campaign.name} to $${newBudget}/day`);
-                    }
-                    break;
-            }
-            
-            // Refresh campaigns after action
-            await handleFetchCampaigns();
-            
-        } catch (error) {
-            const errorMessage = getGoogleAdsApiErrorMessage(error);
-            addToLog(`❌ Error ${action === 'updateBudget' ? 'updating budget' : `${action}ing campaign`}: ${errorMessage}`);
+            addToLog(`Error fetching campaigns: ${error}`);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleFetchCampaigns = async () => {
-        if (!isSignedIn || !gapiClient || !selectedClient) return;
-        
+    const pauseCampaign = async (campaignId: string) => {
+        if (!currentGoogleAdsId) return;
+
         setIsLoading(true);
-        setCampaigns([]);
-        addToLog(`Fetching active campaigns for ${selectedClient}...`);
-        
-        const customerId = getCustomerId(selectedClient);
-        if (!customerId) {
-            addToLog(`❌ Error: Google Ads ID not found for ${selectedClient}.`);
+        addToLog(`Pausing campaign ${campaignId}`);
+
+        try {
+            const response = await fetch('http://localhost:3002/api/campaigns/pause', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    customerId: currentGoogleAdsId,
+                    campaignId: campaignId
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Backend API error ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to pause campaign');
+            }
+
+            // Update local state
+            setCampaigns(prev => prev.map(campaign => 
+                campaign.campaign.id === campaignId 
+                    ? { ...campaign, campaign: { ...campaign.campaign, status: 'PAUSED' } }
+                    : campaign
+            ));
+            
+            addToLog(`Campaign ${campaignId} paused successfully`);
+        } catch (error) {
+            addToLog(`Error pausing campaign: ${error}`);
+        } finally {
             setIsLoading(false);
+        }
+    };
+
+    const enableCampaign = async (campaignId: string) => {
+        if (!currentGoogleAdsId) return;
+
+        setIsLoading(true);
+        addToLog(`Enabling campaign ${campaignId}`);
+
+        try {
+            const response = await fetch('http://localhost:3002/api/campaigns/enable', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    customerId: currentGoogleAdsId,
+                    campaignId: campaignId
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Backend API error ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to enable campaign');
+            }
+
+            // Update local state
+            setCampaigns(prev => prev.map(campaign => 
+                campaign.campaign.id === campaignId 
+                    ? { ...campaign, campaign: { ...campaign.campaign, status: 'ENABLED' } }
+                    : campaign
+            ));
+            
+            addToLog(`Campaign ${campaignId} enabled successfully`);
+        } catch (error) {
+            addToLog(`Error enabling campaign: ${error}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const pauseAllCampaigns = async () => {
+        const enabledCampaigns = campaigns.filter(c => c.campaign.status === 'ENABLED');
+        if (enabledCampaigns.length === 0) {
+            addToLog('No enabled campaigns to pause');
             return;
         }
 
-        try {
-            const data = await fetchCampaignsFromAds(customerId);
+        setIsLoading(true);
+        addToLog(`Pausing ${enabledCampaigns.length} enabled campaigns...`);
 
-            const results = data.results || [];
-            if (results.length === 0) {
-                addToLog(`ℹ️ No active campaigns found for ${selectedClient}.`);
-            } else {
-                addToLog(`✅ Success! Found ${results.length} active campaigns.`);
-            }
-            
-            const fetchedCampaigns = results.map((r: any) => ({
-                id: r.campaign.id || r.campaign.resourceName.split('/').pop(),
-                name: r.campaign.name,
-                resourceName: r.campaign.resourceName,
-                status: r.campaign.status,
-                budgetResourceName: r.campaign.campaignBudget,
-                budgetAmountMicros: r.campaignBudget?.amountMicros || 0,
-                stats: {
-                    clicks: r.metrics?.clicks || 0,
-                    impressions: r.metrics?.impressions || 0,
-                    cost: (r.metrics?.costMicros || 0) / 1000000
+        for (const campaign of enabledCampaigns) {
+            try {
+                const response = await fetch('http://localhost:3002/api/campaigns/pause', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        customerId: currentGoogleAdsId,
+                        campaignId: campaign.campaign.id
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Backend API error ${response.status}: ${errorText}`);
                 }
-            }));
-            setCampaigns(fetchedCampaigns);
 
-        } catch (error) {
-            const errorMessage = getGoogleAdsApiErrorMessage(error);
-            addToLog(`❌ Error fetching campaigns: ${errorMessage}`);
-            console.error("Error fetching campaigns:", error);
-        } finally {
-            setIsLoading(false);
+                const result = await response.json();
+                
+                if (result.success) {
+                    addToLog(`✓ Paused: ${campaign.campaign.name}`);
+                } else {
+                    addToLog(`✗ Failed to pause: ${campaign.campaign.name}`);
+                }
+            } catch (error) {
+                addToLog(`✗ Error pausing ${campaign.campaign.name}: ${error}`);
+            }
         }
+
+        // Refresh campaigns to get updated statuses
+        setTimeout(() => {
+            fetchCampaigns();
+            setIsLoading(false);
+        }, 1000);
     };
 
     return (
-        <div className="bg-gradient-to-br from-[var(--color-bg-secondary)] to-[var(--color-bg-primary)] rounded-xl p-8 shadow-2xl border border-[var(--color-border)] w-full max-w-5xl mx-auto flex flex-col items-center">
-            <h2 className="text-2xl font-semibold mb-2 text-[var(--color-text-primary)]">Google Ads Playground</h2>
-            <p className="text-center text-[var(--color-text-secondary)] mb-6 max-w-2xl">
-                This is a tool for testing interactions with the Google Ads API. Select a client to view and manage their campaigns.
-            </p>
-            
-            {!isSignedIn ? (
-                 <div className="w-full text-center bg-amber-500/10 border border-amber-500/50 text-amber-300 p-4 rounded-lg">
-                    <p className="font-semibold">Authentication Required</p>
-                    <p className="text-sm">Please sign in with your Google account in the header to use this tool.</p>
+        <div className="min-h-screen bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] p-8">
+            <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-8">
+                    <h1 className="text-4xl font-bold mb-4 text-white">Google Ads Playground</h1>
+                    <p className="text-lg text-[var(--color-text-secondary)]">
+                        This is a tool for testing interactions with the Google Ads API. Select a client to view and manage their campaigns.
+                    </p>
                 </div>
-            ) : (
-                <div className="w-full space-y-6">
-                    {/* Client Selector */}
-                    <div className="max-w-md mx-auto">
-                        <label htmlFor="client-selector" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2 text-center">Select a Client</label>
-                        <select
-                            id="client-selector"
-                            value={selectedClient}
-                            onChange={e => onStateChange({ selectedClient: e.target.value })}
-                            className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5"
-                        >
-                            <option value="">-- Select a Client --</option>
-                            {clientsWithAds.map(client => (
-                                <option key={client.ClientName} value={client.ClientName}>{client.ClientName}</option>
-                            ))}
-                        </select>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Client Selection */}
+                    <div className="bg-[var(--color-card-bg)] p-6 rounded-lg border border-[var(--color-border)]">
+                        <h3 className="text-xl font-semibold mb-4">Select a Client</h3>
+                        <div className="space-y-4">
+                            <select
+                                value={selectedClient}
+                                onChange={e => onStateChange({ selectedClient: e.target.value })}
+                                className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5"
+                            >
+                                <option value="">-- Select a Client --</option>
+                                {availableClients.map(clientName => (
+                                    <option key={clientName} value={clientName}>
+                                        {clientName}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {selectedClient && (
+                            <div className="mt-6 p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border)]">
+                                <h4 className="font-semibold mb-2">Client Selected: {selectedClient}</h4>
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-2">Google Ads Customer ID to be used:</p>
+                                <div className="font-mono text-sm p-2 bg-[var(--color-bg-primary)] rounded border">
+                                    {currentGoogleAdsId || (
+                                        <span className="text-red-400">ID not found or invalid.</span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    {/* Main Content Area */}
-                    {selectedClient && (
-                         <div className="w-full mt-4 pt-6 border-t border-[var(--color-border)] grid grid-cols-1 md:grid-cols-2 gap-8">
-                             {/* Left Column: Actions and Info */}
-                            <div>
-                                <div className="bg-black/20 p-4 rounded-lg mb-6">
-                                    <p className="text-sm text-[var(--color-text-secondary)]">Client Selected: <strong className="text-white">{selectedClient}</strong></p>
-                                    <p className="text-sm text-[var(--color-text-secondary)] mt-1">Google Ads Customer ID to be used:</p>
-                                    {displayCustomerId ? (
-                                        <p className="font-mono text-lg text-[var(--color-accent)] bg-black/30 p-2 rounded mt-1">{displayCustomerId}</p>
-                                    ) : (
-                                        <p className="font-mono text-lg text-[var(--color-negative)] bg-black/30 p-2 rounded mt-1">ID not found or invalid.</p>
-                                    )}
-                                </div>
+                    {/* Actions */}
+                    <div className="bg-[var(--color-card-bg)] p-6 rounded-lg border border-[var(--color-border)]">
+                        <h3 className="text-xl font-semibold mb-4">Actions</h3>
+                        
+                        {/* Campaign Filter */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2">Filter Campaigns</label>
+                            <select
+                                value={campaignFilter}
+                                onChange={e => setCampaignFilter(e.target.value as 'all' | 'pmax' | 'search')}
+                                className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5"
+                            >
+                                <option value="all">All Campaigns ({campaigns.length})</option>
+                                <option value="pmax">Performance Max ({campaigns.filter(c => {
+                                    const name = c.campaign.name.toLowerCase();
+                                    return name.includes('perf max') || name.includes('pmax') || name.includes('performance max');
+                                }).length})</option>
+                                <option value="search">Search Campaigns ({campaigns.filter(c => {
+                                    const name = c.campaign.name.toLowerCase();
+                                    return name.includes('search') && !name.includes('perf max') && !name.includes('pmax');
+                                }).length})</option>
+                            </select>
+                        </div>
+                        
+                        <button
+                            onClick={pauseAllCampaigns}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!selectedClient || !currentGoogleAdsId || isLoading || campaigns.filter(c => c.campaign.status === 'ENABLED').length === 0}
+                        >
+                            {isLoading ? 'Pausing...' : `Pause All Campaigns (${campaigns.filter(c => c.campaign.status === 'ENABLED').length})`}
+                        </button>
+                    </div>
+                </div>
 
-                                <h3 className="text-lg font-bold mb-4">Actions</h3>
-                                <div className="space-y-4">
-                                     <button
-                                        onClick={handleFetchCampaigns}
-                                        disabled={isLoading}
-                                        className="w-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 text-white font-bold py-3 px-6 rounded-lg transition-colors text-base"
-                                    >
-                                        {isLoading ? 'Fetching...' : 'Fetch Active Campaigns'}
-                                    </button>
-                                </div>
-                                <h3 className="text-lg font-bold mt-8 mb-4">Log</h3>
-                                <div className="w-full h-64 bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-xs rounded-lg p-3 font-mono overflow-y-auto flex flex-col-reverse">
-                                    {log.length > 0 ? log.join('\n') : <span className="text-gray-500">No actions yet.</span>}
-                                </div>
-                            </div>
-                            
-                            {/* Right Column: Campaign List */}
-                            <div>
-                                 <h3 className="text-lg font-bold mb-4">Campaigns ({campaigns.length})</h3>
-                                 <div className="w-full h-[28rem] bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-sm rounded-lg p-2 font-mono overflow-y-auto">
-                                    {isLoading ? (
-                                        <div className="flex items-center justify-center h-full text-[var(--color-text-secondary)]">Loading...</div>
-                                    ) : campaigns.length > 0 ? (
-                                        <ul className="divide-y divide-[var(--color-border)]">
-                                            {campaigns.map(campaign => (
-                                                <li key={campaign.resourceName} className="p-4 border-b border-[var(--color-border)] last:border-b-0">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="flex-1">
-                                                            <p className="font-semibold text-white truncate" title={campaign.name}>{campaign.name}</p>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                                                    campaign.status === 'ENABLED' 
-                                                                        ? 'bg-green-500/20 text-green-300'
-                                                                        : 'bg-yellow-500/20 text-yellow-300'
-                                                                }`}>
-                                                                    {campaign.status}
-                                                                </span>
-                                                                <span className="text-xs text-gray-400">
-                                                                    Budget: ${(campaign.budgetAmountMicros / 1000000).toFixed(2)}/day
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex gap-1 ml-2">
-                                                            {campaign.status === 'ENABLED' ? (
-                                                                <button
-                                                                    onClick={() => handleCampaignAction('pause', campaign)}
-                                                                    disabled={isLoading}
-                                                                    className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white text-xs rounded"
-                                                                    title="Pause Campaign"
-                                                                >
-                                                                    Pause
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleCampaignAction('enable', campaign)}
-                                                                    disabled={isLoading}
-                                                                    className="px-2 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs rounded"
-                                                                    title="Enable Campaign"
-                                                                >
-                                                                    Enable
-                                                                </button>
-                                                            )}
-                                                            <button
-                                                                onClick={() => {
-                                                                    const newBudget = prompt('Enter new daily budget (USD):', (campaign.budgetAmountMicros / 1000000).toFixed(2));
-                                                                    if (newBudget && !isNaN(parseFloat(newBudget))) {
-                                                                        handleCampaignAction('updateBudget', campaign, parseFloat(newBudget));
-                                                                    }
-                                                                }}
-                                                                disabled={isLoading}
-                                                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs rounded"
-                                                                title="Update Budget"
-                                                            >
-                                                                Budget
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    {campaign.stats && (
-                                                        <div className="text-xs text-gray-500 grid grid-cols-3 gap-2">
-                                                            <div>Clicks: {campaign.stats.clicks?.toLocaleString() || 0}</div>
-                                                            <div>Impressions: {campaign.stats.impressions?.toLocaleString() || 0}</div>
-                                                            <div>Cost: ${campaign.stats.cost?.toFixed(2) || '0.00'}</div>
-                                                        </div>
-                                                    )}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <div className="flex items-center justify-center h-full text-gray-500">
-                                            No campaigns loaded.
+                {/* Campaigns Section */}
+                <div className="mt-8 bg-[var(--color-card-bg)] p-6 rounded-lg border border-[var(--color-border)]">
+                    <h3 className="text-xl font-semibold mb-4">
+                        {campaignFilter === 'all' ? 'All Campaigns' : 
+                         campaignFilter === 'pmax' ? 'Performance Max Campaigns' : 'Search Campaigns'} 
+                        ({filteredCampaigns.length})
+                    </h3>
+                    
+                    {filteredCampaigns.length === 0 ? (
+                        <div className="text-center text-[var(--color-text-secondary)] py-8">
+                            {campaigns.length === 0 ? 'No campaigns loaded.' : 'No campaigns match the selected filter.'}
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {filteredCampaigns.map(campaign => (
+                                <div key={campaign.campaign.id} className="bg-[var(--color-bg-secondary)] p-4 rounded border border-[var(--color-border)]">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                            <h4 className="font-semibold">{campaign.campaign.name}</h4>
+                                            <p className="text-sm text-[var(--color-text-secondary)]">ID: {campaign.campaign.id}</p>
                                         </div>
-                                    )}
-                                 </div>
-                            </div>
+                                        <div className="text-right flex-shrink-0 ml-4">
+                                            <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                                campaign.campaign.status === 'ENABLED' 
+                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                                                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                            }`}>
+                                                {campaign.campaign.status}
+                                            </span>
+                                            <p className="text-sm mt-1">Budget: ${(campaign.campaignBudget.amountMicros / 1000000).toFixed(2)}</p>
+                                            <p className="text-sm">Clicks: {campaign.metrics.clicks}</p>
+                                            
+                                            <div className="mt-3 space-x-2">
+                                                {campaign.campaign.status === 'ENABLED' ? (
+                                                    <button
+                                                        onClick={() => pauseCampaign(campaign.campaign.id)}
+                                                        disabled={isLoading}
+                                                        className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded transition-colors disabled:opacity-50"
+                                                    >
+                                                        Pause
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => enableCampaign(campaign.campaign.id)}
+                                                        disabled={isLoading}
+                                                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors disabled:opacity-50"
+                                                    >
+                                                        Enable
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
-            )}
+
+                {/* Log Section */}
+                <div className="mt-8 bg-[var(--color-card-bg)] p-6 rounded-lg border border-[var(--color-border)]">
+                    <h3 className="text-xl font-semibold mb-4">Log</h3>
+                    <div className="bg-[var(--color-bg-primary)] p-4 rounded border border-[var(--color-border)] h-64 overflow-y-auto">
+                        {log.length === 0 ? (
+                            <div className="text-[var(--color-text-secondary)] text-sm">
+                                Ready to start...
+                            </div>
+                        ) : (
+                            <div className="space-y-1">
+                                {log.map((entry, index) => (
+                                    <div key={index} className="text-[var(--color-text-primary)] text-sm font-mono">
+                                        {entry}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
+
 export default GoogleAdsRobotTool;

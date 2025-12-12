@@ -1,0 +1,197 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Client Performance Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script>
+        // Globally register the datalabels plugin
+        if (window.ChartDataLabels) {
+            Chart.register(ChartDataLabels);
+        }
+    </script>
+    <!-- Styles for React Grid Layout -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/react-grid-layout/1.4.4/css/styles.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/react-resizable/3.0.5/css/styles.min.css" />
+    <style>
+        /* Styles for Draggable Grid */
+        .react-grid-item .react-resizable-handle {
+            background-color: transparent !important;
+            background-image: none !important;
+        }
+        .react-grid-item.react-grid-placeholder {
+            background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+            border-radius: 0.75rem;
+        }
+        .chart-grid-item:hover {
+            box-shadow: 0 0 15px color-mix(in srgb, var(--color-accent) 40%, transparent);
+        }
+        .drag-handle {
+            cursor: move; /* fallback */
+            cursor: grab;
+        }
+        .drag-handle:active {
+             cursor: grabbing;
+        }
+        
+        /* Styles for AI Chat Markdown Rendering */
+        .prose ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .prose li {
+            margin-bottom: 0.25rem;
+        }
+        .prose strong {
+            font-weight: 600;
+            color: inherit;
+        }
+        .prose a {
+            color: var(--color-text-accent);
+            text-decoration: underline;
+        }
+        .prose a:hover {
+            opacity: 0.8;
+        }
+
+
+        /* Styles for AI Typing Indicator */
+        .typing-indicator span {
+            height: 8px;
+            width: 8px;
+            float: left;
+            margin: 0 1px;
+            background-color: var(--color-text-secondary);
+            display: block;
+            border-radius: 50%;
+            opacity: 0.4;
+            animation: a-typing 1s infinite;
+        }
+        .typing-indicator span:nth-child(2) {
+            animation-delay: .2s;
+        }
+        .typing-indicator span:nth-child(3) {
+            animation-delay: .4s;
+        }
+        @keyframes a-typing {
+            0% { transform: translateY(0px) }
+            50% { transform: translateY(-5px) }
+            100% { transform: translateY(0px) }
+        }
+
+        /* Opaque background for projection row to fix transparency issue */
+        .projection-cell {
+            background-color: color-mix(in srgb, var(--color-accent) 15%, var(--color-bg-primary));
+        }
+        .group:hover .projection-cell {
+            background-color: color-mix(in srgb, var(--color-accent) 25%, var(--color-bg-secondary));
+        }
+
+        /* Styles for Popover Taper */
+        .popover-taper::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            left: auto;
+            right: 27px;
+            transform: translateX(50%);
+            border-width: 9px;
+            border-style: solid;
+            border-color: transparent transparent var(--color-border) transparent;
+            z-index: 1;
+        }
+        .popover-taper::after {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            left: auto;
+            right: 26px;
+            transform: translateX(50%);
+            border-width: 8px;
+            border-style: solid;
+            border-color: transparent transparent var(--color-bg-secondary) transparent;
+            margin-bottom: -1.5px;
+            z-index: 2;
+        }
+
+        /* Styles for Manager Dashboard Tooltip */
+        .manager-tooltip {
+            --tooltip-bg: white;
+            --tooltip-text: #1E293B; /* slate-800 */
+            --tooltip-border: var(--color-accent);
+            background-color: var(--tooltip-bg);
+            color: var(--tooltip-text);
+            border-color: var(--tooltip-border);
+        }
+        .manager-tooltip::before { /* Border part */
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 8px;
+            border-style: solid;
+            border-color: var(--tooltip-border) transparent transparent transparent;
+        }
+        .manager-tooltip::after { /* Fill part */
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-top: -2px; /* Pull up to cover the main box's bottom border */
+            border-width: 6px;
+            border-style: solid;
+            border-color: var(--tooltip-bg) transparent transparent transparent;
+        }
+
+        /* Styles for Sticky Header */
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 30; /* Below popovers (50) but above content */
+            border-bottom: 1px solid var(--color-border);
+        }
+        
+        /* Animation for error alert */
+        @keyframes fade-in {
+            0% { opacity: 0; transform: translateY(-10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fade-in 0.3s ease-out forwards;
+        }
+
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3",
+    "chart.js": "https://esm.sh/chart.js@^4.5.0",
+    "react-grid-layout": "https://esm.sh/react-grid-layout@1.4.4",
+    "prop-types": "https://esm.sh/prop-types@15.8.1",
+    "@google/genai": "https://esm.sh/@google/genai@0.15.0",
+    "marked": "https://esm.sh/marked@13.0.2"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

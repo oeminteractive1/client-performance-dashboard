@@ -28,6 +28,7 @@ import FreeShippingTool from './components/FreeShippingTool';
 import CategoryPageCreatorTool from './components/CategoryPageCreatorTool';
 import ProductAvailabilityTool from './components/ProductAvailabilityTool';
 import FileUploaderTool from './components/FileUploaderTool';
+import BingAdsPlayground from './components/BingAdsPlayground';
 
 // Hardcoded Google Sheets API Key for read-only operations.
 const API_KEY = 'AIzaSyC-XMGjEXrs4m9LU4wy1blZ9zdULZdILAo';
@@ -65,6 +66,7 @@ const TOOL_ROUTES: Record<string, string> = {
     'category_page_creator': '/tools/workflow/category-page-creator',
     'product_availability': '/tools/workflow/product-availability',
     'file_uploader': '/tools/workflow/file-uploader',
+    'bing_ads_playground': '/tools/workflow/bing-ads-playground',
 };
 
 // Helper functions
@@ -92,6 +94,8 @@ const accountDetailsHeaderMapping: { [key: string]: keyof AccountDetailsRecord }
     'GMC': 'GMC', 'MID': 'GMC', 'Current SEO Package': 'CurrentSEOPackage', 'Auto Group': 'AutoGroup',
     'Brands': 'Brands',
     'Bing': 'Bing',
+    'AID': 'AID',
+    'CID': 'CID',
     'State': 'State',
     'ShippingMethods': 'ShippingMethods',
     'SignatureSurcharge': 'SignatureSurcharge',
@@ -1578,9 +1582,9 @@ const App: React.FC = () => {
             setAllData(parsedData);
             setLastUpdated(new Date());
 
-            // Set the master client list from the performance data
-            const uniqueClients = [...new Set(parsedData.map(d => d.ClientName))].sort();
-            setClients(uniqueClients);
+            // Clients list now comes from Account Details (Settings tab), not performance data
+            // const uniqueClients = [...new Set(parsedData.map(d => d.ClientName))].sort();
+            // setClients(uniqueClients);
             // Don't auto-select client here, let URL handle it
             
             return true;
@@ -1601,6 +1605,9 @@ const App: React.FC = () => {
         try {
             const parsedData = await genericSheetFetcher(accountDetailsSheetId, accountDetailsSheetName, processAccountDetailsData);
             setAccountDetailsData(parsedData);
+            // Populate clients list from account details (Settings tab)
+            const uniqueClients = [...new Set(parsedData.map(d => d.ClientName))].filter(Boolean).sort();
+            setClients(uniqueClients);
             return true;
         } catch (err) { 
             setAccountDetailsError(err instanceof Error ? err.message : 'An unknown error occurred.'); 
@@ -2081,8 +2088,9 @@ const App: React.FC = () => {
                     const accountData = parsedData as AccountDetailsRecord[];
                 } else if (processor === processPerformanceData as any) {
                     const performanceData = parsedData as ClientDataRecord[];
-                    const uniqueClients = [...new Set(performanceData.map(d => d.ClientName))].sort();
-                    setClients(uniqueClients);
+                    // Clients list now comes from Account Details (Settings tab), not performance data
+                    // const uniqueClients = [...new Set(performanceData.map(d => d.ClientName))].sort();
+                    // setClients(uniqueClients);
                     // setSelectedClient(''); // Handled by URL now
                     setLastUpdated(new Date());
                 }
@@ -2893,6 +2901,7 @@ const App: React.FC = () => {
                     <Route path="/tools/workflow/category-page-creator" element={<CategoryPageCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.category_page_creator} onStateChange={(newState) => handleToolStateChange('category_page_creator', newState)} />} />
                     <Route path="/tools/workflow/product-availability" element={<ProductAvailabilityTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.product_availability} onStateChange={(newState) => handleToolStateChange('product_availability', newState)} />} />
                     <Route path="/tools/workflow/file-uploader" element={<FileUploaderTool gapiClient={gapiClient} />} />
+                    <Route path="/tools/workflow/bing-ads-playground" element={<BingAdsPlayground allAccountDetails={accountDetailsData} />} />
 
                     {/* Fallback */}
                     <Route path="*" element={<Navigate to="/" replace />} />

@@ -61,6 +61,8 @@ export interface AccountDetailsRecord {
   AutoGroup?: string;
   Brands?: string;
   Bing?: string;
+  AID?: string;
+  CID?: string;
   State?: string;
   ShippingMethods?: string;
   SignatureSurcharge?: number | string;

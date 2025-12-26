@@ -83,7 +83,7 @@ const Sparkline: React.FC<{ data: number[]; isPositive: boolean }> = ({ data, is
 
 // --- Main Component ---
 const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData, allAccountDetails, allKeyContactsData, onSelectClient, theme, toolState, onStateChange }) => {
-    const { role: selectedRole, manager: selectedManager, revenueFilter, comparisonMode, isTrendVisible, isCurrentMonthVisible, columnOrder } = toolState;
+    const { role: selectedRole, manager: selectedManager, revenueFilter, comparisonMode, isTrendVisible, isCurrentMonthVisible, columnOrder, brandFilter } = toolState;
 
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'ascending' | 'descending' } | null>({ key: 'clientName', direction: 'ascending' });
     
@@ -121,6 +121,20 @@ const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData,
         
         return ['All Clients', ...[...new Set(managerNames)].sort()];
     }, [selectedRole, allKeyContactsData, allAccountDetails]);
+
+    const availableBrands = useMemo(() => {
+        const brandSet = new Set<string>();
+        
+        allAccountDetails.forEach(account => {
+            if (account.Brands) {
+                // Split by comma and trim whitespace
+                const brands = account.Brands.split(',').map(brand => brand.trim()).filter(brand => brand.length > 0);
+                brands.forEach(brand => brandSet.add(brand));
+            }
+        });
+        
+        return ['All Brands', ...Array.from(brandSet).sort()];
+    }, [allAccountDetails]);
     
     const comparisonPeriodTooltips = useMemo(() => {
         const defaults = { mom: 'MOM', yoy: 'YOY' };
@@ -307,6 +321,20 @@ const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData,
             clientList = Array.from(clientNamesForManager).filter(name => allClientsFromSettings.has(name));
         }
 
+        // Filter by brand if a specific brand is selected
+        if (brandFilter && brandFilter !== 'All Brands') {
+            const clientsWithBrand = new Set<string>();
+            allAccountDetails.forEach(account => {
+                if (account.Brands) {
+                    const brands = account.Brands.split(',').map(brand => brand.trim());
+                    if (brands.includes(brandFilter)) {
+                        clientsWithBrand.add(account.ClientName);
+                    }
+                }
+            });
+            clientList = clientList.filter(clientName => clientsWithBrand.has(clientName));
+        }
+
         return clientList.map(clientName => {
             const clientPerformance = allPerformanceData.filter(d => d.ClientName === clientName);
             const sortedPerformance = [...clientPerformance].sort((a, b) => new Date(b.Year, monthMap[b.Month.substring(0, 3)]).getTime() - new Date(a.Year, monthMap[a.Month.substring(0, 3)]).getTime());
@@ -394,7 +422,7 @@ const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData,
             };
         });
 
-    }, [selectedManager, selectedRole, allPerformanceData, allKeyContactsData, allAccountDetails, comparisonMode]);
+    }, [selectedManager, selectedRole, allPerformanceData, allKeyContactsData, allAccountDetails, comparisonMode, brandFilter]);
 
     const sortedTableData = useMemo(() => {
         let sortableItems = [...tableData];
@@ -563,7 +591,7 @@ const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData,
     return (
         <section className="flex flex-col gap-8">
             <div className="bg-[var(--color-card-bg)] backdrop-blur-sm rounded-xl border border-[var(--color-border)] shadow-lg p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 max-w-7xl mx-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 max-w-7xl mx-auto">
                     <div>
                         <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">Role</label>
                         <select value={selectedRole} onChange={handleRoleChange} className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)] block p-2.5">
@@ -578,6 +606,12 @@ const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ allPerformanceData,
                         <select value={selectedManager} onChange={e => onStateChange({ manager: e.target.value })} disabled={!selectedRole} className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)] block p-2.5 disabled:opacity-50">
                             <option value="">Select Manager</option>
                             {managers.map(manager => <option key={manager} value={manager}>{manager}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">Brand</label>
+                        <select value={brandFilter || 'All Brands'} onChange={e => onStateChange({ brandFilter: e.target.value })} className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)] block p-2.5">
+                            {availableBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}
                         </select>
                     </div>
                      <div>

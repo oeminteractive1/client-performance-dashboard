@@ -1,0 +1,3 @@
+call generateProxy CustomerBilling CustomerBilling https://clientcenter.api.bingads.microsoft.com/Api/Billing/v9/CustomerBillingService.svc
+call generateProxy CustomerManagement CustomerManagement https://clientcenter.api.sandbox.bingads.microsoft.com/Api/CustomerManagement/v9/CustomerManagementService.svc
+call generateProxy Reporting Reporting https://api.sandbox.bingads.microsoft.com/Api/Advertiser/Reporting/v9/ReportingService.svc

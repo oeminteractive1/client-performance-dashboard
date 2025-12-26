@@ -39,6 +39,7 @@ const ALL_TOOLS: Record<string, { title: string; icon: string; description: stri
     bulk_url_opener: { title: 'Bulk URL Opener', icon: '🚀', description: 'Open URLs for multiple clients in batches.', category: 'Workflows' },
     strategy_notes: { title: 'Strategy Notes Viewer', icon: '📝', description: 'Review strategy notes by client and month.', category: 'Workflows' },
     google_ads_robot: { title: 'Google Ads Playground', icon: '🧪', description: 'A testing area for new Google Ads management tiles.', category: 'Workflows' },
+    bing_ads_playground: { title: 'Bing Ads Playground', icon: '🔎', description: 'Manage campaigns, view performance metrics, and adjust budgets.', category: 'Workflows' },
     tag_creator: { title: 'Tag Creator', icon: '🏷️', description: 'Generate a CSV with part numbers and a custom tag.', category: 'Workflows' },
     search_page_creator: { title: 'Search Page Creator', icon: '🔍', description: 'Generate a CSV for a custom search results page.', category: 'Workflows' },
     free_shipping_tool: { title: 'Free Shipping Tool', icon: '💸', description: 'Generate a CSV to mark items for free shipping.', category: 'Workflows' },

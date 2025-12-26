@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { ClientDataRecord, AccountDetailsRecord, AllItemsInFeedData, ItemsInFeedDataPoint, Theme, AllFeedStatusData, AllPercentApprovedData, AllStoreStatusData, AllStoreChangesData, AllBudgetStatusData, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, AllRevolutionLinksData, GoogleSearchConsoleRecord, AllGoogleSearchConsoleData, PercentApprovedRecord, GoogleAnalyticsRecord, AllGoogleAnalyticsData, GoogleAdsRecord, AllGoogleAdsData, StoreChangesRecord, HistoryState, AllToolStates, AllCurrentStatusData, CurrentStatusRecord, FeedStatus, StoreStatusRecord as StoreStatusRecordType, NoteRecord, UserRecord } from './types';
+import { ClientDataRecord, AccountDetailsRecord, AllItemsInFeedData, ItemsInFeedDataPoint, Theme, AllFeedStatusData, AllPercentApprovedData, AllStoreStatusData, AllStoreChangesData, AllBudgetStatusData, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, AllRevolutionLinksData, GoogleSearchConsoleRecord, AllGoogleSearchConsoleData, PercentApprovedRecord, GoogleAnalyticsRecord, AllGoogleAnalyticsData, GoogleAdsRecord, AllGoogleAdsData, BingAdsRecord, AllBingAdsData, StoreChangesRecord, HistoryState, AllToolStates, AllCurrentStatusData, CurrentStatusRecord, FeedStatus, StoreStatusRecord as StoreStatusRecordType, NoteRecord, UserRecord } from './types';
 import { themes } from './themes';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
@@ -201,6 +201,14 @@ const googleAdsHeaderMapping: { [key: string]: keyof GoogleAdsRecord } = {
     'Date Ran:': 'DateRan',
 };
 
+const bingAdsHeaderMapping: { [key: string]: keyof BingAdsRecord } = {
+    'Clients': 'ClientName', 'Date': 'Date', 'Cost': 'Cost',
+    'Impressions': 'Impressions', 'Clicks': 'Clicks', 'AvgCPC': 'AvgCPC',
+    'CTR': 'CTR', 'ROAS': 'ROAS', 'Conversions': 'Conversions',
+    'ConvRate': 'ConvRate', 'Budget': 'Budget',
+    'Date Ran:': 'DateRan',
+};
+
 
 const requiredPerformanceHeaders = ['ClientName', 'Month', 'Year', 'Orders', 'Revenue', 'Profit', 'Sessions'];
 
@@ -357,6 +365,13 @@ const App: React.FC = () => {
     const [isGoogleAdsLoading, setIsGoogleAdsLoading] = useState<boolean>(false);
     const [googleAdsSheetId, setGoogleAdsSheetId] = useState<string>(() => localStorage.getItem('googleAdsSheetId') || '1EYp-vsBxiio0HlBzJckp8J2B6YAXxvKfXGGdgJDNtqY');
     const [googleAdsSheetName, setGoogleAdsSheetName] = useState<string>(() => localStorage.getItem('googleAdsSheetName') || 'GoogleAds');
+
+    // State for Bing Ads Data
+    const [bingAdsData, setBingAdsData] = useState<AllBingAdsData>({});
+    const [bingAdsError, setBingAdsError] = useState<string>('');
+    const [isBingAdsLoading, setIsBingAdsLoading] = useState<boolean>(false);
+    const [bingAdsSheetId, setBingAdsSheetId] = useState<string>(() => localStorage.getItem('bingAdsSheetId') || '1EYp-vsBxiio0HlBzJckp8J2B6YAXxvKfXGGdgJDNtqY');
+    const [bingAdsSheetName, setBingAdsSheetName] = useState<string>(() => localStorage.getItem('bingAdsSheetName') || 'BingAds');
 
     // State for Strategy Notes Data (pre-caching)
     const [strategyNotesData, setStrategyNotesData] = useState<NoteRecord[]>([]);
@@ -1296,6 +1311,55 @@ const App: React.FC = () => {
         return data;
     }, []);
 
+    const processBingAdsData = useCallback((rows: string[][], headers: string[]): AllBingAdsData => {
+        const headerMap = new Map<string, number>();
+        headers.forEach((h, i) => headerMap.set(h.trim(), i));
+
+        const requiredHeaders = ['Clients', 'Date'];
+        const missing = requiredHeaders.filter(h => !headerMap.has(h));
+        if (missing.length > 0) throw new Error(`Missing required headers in BingAds file: ${missing.join(', ')}.`);
+
+        const data: AllBingAdsData = {};
+
+        rows.forEach(row => {
+            const clientName = row[headerMap.get('Clients')!];
+            if (!clientName || clientName.trim() === '') return;
+
+            const record: Partial<BingAdsRecord> = { ClientName: clientName };
+            for (const header of headers) {
+                const key = bingAdsHeaderMapping[header.trim()];
+                if (key) {
+                    const cellValue = row[headerMap.get(header.trim())!];
+                    switch (key) {
+                        case 'Cost': case 'AvgCPC': case 'Budget':
+                            record[key] = cleanCurrency(cellValue); break;
+                        case 'Impressions': case 'Clicks': case 'Conversions':
+                            record[key] = cleanNumber(cellValue); break;
+                        case 'CTR': case 'ROAS': case 'ConvRate':
+                            record[key] = cleanFloat(cellValue); break;
+                        default:
+                            (record as any)[key] = cellValue; break;
+                    }
+                }
+            }
+            if (!data[clientName]) {
+                data[clientName] = [];
+            }
+            data[clientName].push(record as BingAdsRecord);
+        });
+
+        // Sort each client's data by date
+        for (const client in data) {
+            data[client].sort((a, b) => {
+                const dateA = new Date(a.Date);
+                const dateB = new Date(b.Date);
+                return dateA.getTime() - dateB.getTime();
+            });
+        }
+
+        return data;
+    }, []);
+
     const processItemsInFeedData = useCallback((rows: string[][], headers: string[]): AllItemsInFeedData => {
         let clientNameIndex = headers.findIndex(h => /client name|clients/i.test(h.trim()));
         let midIndex = headers.findIndex(h => /mid|gmc/i.test(h.trim())); // Find MID column
@@ -1838,6 +1902,24 @@ const App: React.FC = () => {
         }
     }, [googleAdsSheetId, googleAdsSheetName, genericSheetFetcher, processGoogleAdsData]);
 
+    const handleFetchBingAdsData = useCallback(async () => {
+        if (!bingAdsSheetId || !bingAdsSheetName) {
+            setBingAdsError('Please provide a valid Spreadsheet ID and Sheet Name.');
+            return false;
+        }
+        setIsBingAdsLoading(true); setBingAdsError('');
+        try {
+            const parsedData = await genericSheetFetcher(bingAdsSheetId, bingAdsSheetName, processBingAdsData);
+            setBingAdsData(parsedData);
+            return true;
+        } catch (err) {
+            setBingAdsError(err instanceof Error ? err.message : 'An unknown error occurred.');
+            return false;
+        } finally {
+            setIsBingAdsLoading(false);
+        }
+    }, [bingAdsSheetId, bingAdsSheetName, genericSheetFetcher, processBingAdsData]);
+
     const handleFetchUsersData = useCallback(async () => {
         if (!performanceSheetId) return false;
         try {
@@ -1928,6 +2010,7 @@ const App: React.FC = () => {
             handleFetchGoogleSearchConsoleData,
             handleFetchGoogleAnalyticsData,
             handleFetchGoogleAdsData,
+            handleFetchBingAdsData,
             handleFetchUsersData
         ];
         
@@ -1957,7 +2040,7 @@ const App: React.FC = () => {
         handleFetchItemsInFeedData, handleFetchFeedStatusData, handleFetchPercentApprovedData,
         handleFetchStoreStatusData, handleFetchStoreChangesData, handleFetchBudgetStatusData,
         handleFetchRevolutionLinksData, handleFetchGoogleSearchConsoleData, handleFetchGoogleAnalyticsData,
-        handleFetchGoogleAdsData, handleFetchUsersData
+        handleFetchGoogleAdsData, handleFetchBingAdsData, handleFetchUsersData
     ]);
 
     useEffect(() => {
@@ -2115,6 +2198,7 @@ const App: React.FC = () => {
     const handleGoogleSearchConsoleFileUpload = createUploadHandler(processGoogleSearchConsoleData, setGoogleSearchConsoleData, setIsGoogleSearchConsoleLoading, setGoogleSearchConsoleError);
     const handleGoogleAnalyticsFileUpload = createUploadHandler(processGoogleAnalyticsData, setGoogleAnalyticsData, setIsGoogleAnalyticsLoading, setGoogleAnalyticsError);
     const handleGoogleAdsFileUpload = createUploadHandler(processGoogleAdsData, setGoogleAdsData, setIsGoogleAdsLoading, setGoogleAdsError);
+    const handleBingAdsFileUpload = createUploadHandler(processBingAdsData, setBingAdsData, setIsBingAdsLoading, setBingAdsError);
 
 
     const clientData = useMemo(() => {
@@ -2189,6 +2273,11 @@ const App: React.FC = () => {
         if (!selectedClient || !googleAdsData) return null;
         return googleAdsData[selectedClient] || null;
     }, [googleAdsData, selectedClient]);
+
+    const bingAdsForClient = useMemo(() => {
+        if (!selectedClient || !bingAdsData) return null;
+        return bingAdsData[selectedClient] || null;
+    }, [bingAdsData, selectedClient]);
 
     const getHeaderTitle = () => {
         if (currentPath === TOOL_ROUTES.client && selectedClient) return ``;
@@ -2342,15 +2431,15 @@ const App: React.FC = () => {
             {(isFetchingAll) ? (
                  <div className="text-center py-10"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--color-accent)] mx-auto"></div><p className="mt-4 text-lg text-[var(--color-text-secondary)]">Loading Data...</p></div>
             ) : allData.length > 0 && selectedClient ? (
-                <Dashboard 
-                    clientData={clientData} 
-                    lastUpdated={lastUpdated} 
+                <Dashboard
+                    clientData={clientData}
+                    lastUpdated={lastUpdated}
                     accountDetails={accountDetailsForClient}
                     keyContact={keyContactForClient}
-                    itemsInFeedData={itemsInFeedForClient} 
-                    theme={currentTheme} 
-                    feedStatus={feedStatusForClient} 
-                    percentApprovedData={percentApprovedForClient} 
+                    itemsInFeedData={itemsInFeedForClient}
+                    theme={currentTheme}
+                    feedStatus={feedStatusForClient}
+                    percentApprovedData={percentApprovedForClient}
                     storeStatus={storeStatusForClient}
                     currentStatus={currentStatusForClient}
                     onUpdateCurrentStatus={handleUpdateCurrentStatus}
@@ -2360,6 +2449,7 @@ const App: React.FC = () => {
                     googleSearchConsoleData={googleSearchConsoleForClient}
                     googleAnalyticsData={googleAnalyticsForClient}
                     googleAdsData={googleAdsForClient}
+                    bingAdsData={bingAdsForClient}
                     isModalOpen={isDashboardModalOpen}
                     setIsModalOpen={setIsDashboardModalOpen}
                 />
@@ -2605,7 +2695,21 @@ const App: React.FC = () => {
                                     {googleAdsError && <div className="bg-[var(--color-negative-bg)] border border-[var(--color-negative)] text-[var(--color-negative)] p-3 rounded-lg text-sm mt-4" role="alert">{googleAdsError}</div>}
                                 </div>
 
-                                {/* 14. Users Data */}
+                                {/* 14. Bing Ads */}
+                                <div className="border-b border-white/20 pb-8">
+                                    <h3 className="text-xl font-bold text-[var(--color-accent-secondary)] mb-4">Google Sheets Connection for Bing Ads</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div><label htmlFor="bads-sheet-id" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">Spreadsheet ID</label><input id="bads-sheet-id" type="text" value={bingAdsSheetId} onChange={e => setBingAdsSheetId(e.target.value)} className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5" placeholder="Enter Spreadsheet ID" /></div>
+                                        <div><label htmlFor="bads-sheet-name" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">Sheet (Tab) Name</label><input id="bads-sheet-name" type="text" value={bingAdsSheetName} onChange={e => setBingAdsSheetName(e.target.value)} className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5" placeholder="Enter Sheet Name" /></div>
+                                    </div>
+                                    <div className="mt-4 flex flex-wrap gap-4 items-center">
+                                        <button onClick={() => handleFetchBingAdsData()} disabled={isBingAdsLoading} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition-colors">{isBingAdsLoading ? 'Fetching...' : 'Fetch Bing Ads'}</button>
+                                        <div className="flex items-center gap-2"><p className="text-sm text-[var(--color-text-secondary)]">or</p><label htmlFor="csv-upload-bads" className="text-sm text-[var(--color-accent-secondary)] hover:brightness-90 font-semibold cursor-pointer">Upload CSV</label><input id="csv-upload-bads" type="file" accept=".csv" onChange={handleBingAdsFileUpload} className="hidden" /></div>
+                                    </div>
+                                    {bingAdsError && <div className="bg-[var(--color-negative-bg)] border border-[var(--color-negative)] text-[var(--color-negative)] p-3 rounded-lg text-sm mt-4" role="alert">{bingAdsError}</div>}
+                                </div>
+
+                                {/* 15. Users Data */}
                                 <div className="pb-8">
                                     <h3 className="text-xl font-bold text-[var(--color-accent-secondary)] mb-4">Google Sheets Connection for Users Data</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2893,7 +2997,7 @@ const App: React.FC = () => {
                     <Route path="/tools/workflow/seo-titles" element={<CustomSeoTitlesTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} gapiClient={gapiClient} isSignedIn={isSignedIn} mainSheetId={performanceSheetId} toolState={toolStates.custom_titles} onStateChange={(newState) => handleToolStateChange('custom_titles', newState)} />} />
                     <Route path="/tools/workflow/bulk-url" element={<BulkUrlOpenerTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.bulk_url_opener} onStateChange={(newState) => handleToolStateChange('bulk_url_opener', newState)} />} />
                     <Route path="/tools/workflow/strategy-notes" element={<StrategyNotesTool allKeyContactsData={keyContactsData} onSelectClient={handleSelectClientFromToolView} toolState={toolStates.strategy_notes} onStateChange={(newState) => handleToolStateChange('strategy_notes', newState)} gapiClient={gapiClient} isSignedIn={isSignedIn} notesData={strategyNotesData} isLoading={isStrategyNotesLoading} error={strategyNotesError} onRefresh={handleFetchStrategyNotes} onUpdateNoteLocally={handleUpdateStrategyNoteLocally} />} />
-                    <Route path="/tools/workflow/google-ads-robot" element={<GoogleAdsRobotTool allAccountDetails={accountDetailsData} gapiClient={gapiClient} isSignedIn={isSignedIn} toolState={toolStates.google_ads_robot} onStateChange={(newState) => handleToolStateChange('google_ads_robot', newState)} />} />
+                    <Route path="/tools/workflow/google-ads-robot" element={<GoogleAdsRobotTool allAccountDetails={accountDetailsData} allBudgetStatusData={budgetStatusData} gapiClient={gapiClient} isSignedIn={isSignedIn} toolState={toolStates.google_ads_robot} onStateChange={(newState) => handleToolStateChange('google_ads_robot', newState)} />} />
                     <Route path="/tools/workflow/polaris-msrp" element={<PolarisMSRPUpdater gapiClient={gapiClient} isSignedIn={isSignedIn} />} />
                     <Route path="/tools/workflow/tag-creator" element={<TagCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.tag_creator} onStateChange={(newState) => handleToolStateChange('tag_creator', newState)} />} />
                     <Route path="/tools/workflow/search-page-creator" element={<SearchPageCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.search_page_creator} onStateChange={(newState) => handleToolStateChange('search_page_creator', newState)} />} />

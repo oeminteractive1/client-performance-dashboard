@@ -38,7 +38,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({ type, data, options }) => {
           animationDuration: 0
         },
         responsiveAnimationDuration: 0,
-        interaction: {
+        interaction: options?.interaction || {
           intersect: false,
           mode: 'index',
         },
@@ -46,7 +46,7 @@ const ChartWrapper: React.FC<ChartWrapperProps> = ({ type, data, options }) => {
           ...options?.plugins,
           tooltip: {
             ...options?.plugins?.tooltip,
-            enabled: false
+            enabled: options?.plugins?.tooltip?.enabled ?? false
           }
         }
       },

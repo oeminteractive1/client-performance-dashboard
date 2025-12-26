@@ -278,6 +278,25 @@ export interface AllGoogleAdsData {
     [clientName: string]: GoogleAdsRecord[];
 }
 
+export interface BingAdsRecord {
+    ClientName: string;
+    Date: string;
+    Cost?: number;
+    Impressions?: number;
+    Clicks?: number;
+    AvgCPC?: number;
+    CTR?: number;
+    ROAS?: number;
+    Conversions?: number;
+    ConvRate?: number;
+    Budget?: number;
+    DateRan?: string;
+}
+
+export interface AllBingAdsData {
+    [clientName: string]: BingAdsRecord[];
+}
+
 export interface NoteRecord {
   clientName: string;
   month: string; // YYYY-MM

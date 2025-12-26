@@ -25,6 +25,7 @@ const allTools = {
     free_shipping_tool: { icon: '💸', title: 'Free Shipping Tool', description: 'Generate a CSV to mark items for free shipping.' },
     category_page_creator: { icon: '🗂️', title: 'Category Page Creator', description: 'Create a category page and map products to it.' },
     product_availability: { icon: '💡', title: 'Product Availability Tool', description: 'Set parts as available or not for sale.' },
+    bing_ads_playground: { icon: '🔎', title: 'Bing Ads Playground', description: 'Manage campaigns, view performance metrics, and adjust budgets.' },
 };
 
 // Define the categories and which tools belong to them
@@ -50,6 +51,7 @@ const toolCategories = [
             'custom_titles',
             'strategy_notes',
             'google_ads_robot',
+            'bing_ads_playground',
             'bulk_url_opener',
             'tag_creator',
             'search_page_creator',

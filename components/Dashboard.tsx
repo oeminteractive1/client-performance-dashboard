@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
-import { ClientDataRecord, AccountDetailsRecord, ItemsInFeedDataPoint, Theme, FeedStatus, PercentApprovedRecord, StoreStatusRecord, StoreChangesRecord, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, GoogleSearchConsoleRecord, GoogleAnalyticsRecord, GoogleAdsRecord, CurrentStatusRecord } from '../types';
+import { ClientDataRecord, AccountDetailsRecord, ItemsInFeedDataPoint, Theme, FeedStatus, PercentApprovedRecord, StoreStatusRecord, StoreChangesRecord, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, GoogleSearchConsoleRecord, GoogleAnalyticsRecord, GoogleAdsRecord, BingAdsRecord, CurrentStatusRecord } from '../types';
 import ChartWrapper from './ChartWrapper';
 import ChartGridItem from './ChartGridItem';
 import KpiGridItem from './KPIGridItem';
@@ -13,6 +13,7 @@ import TopOrganicPerformanceTile from './TopOrganicPerformanceTile';
 import SnapshotAndLinksTile from './SnapshotAndLinksTile';
 import GoogleAnalyticsTile from './GoogleAnalyticsTile';
 import GoogleAdsTile from './GoogleAdsTile';
+import BingAdsTile from './BingAdsTile';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -32,9 +33,10 @@ const allOverviewTileDefs: { [key: string]: { title: string; subtitle?: string }
     organic_search: { title: '📈 Organic Impressions & Clicks', subtitle: 'From Google Search Console' },
     google_analytics: { title: '📈 Google Analytics', subtitle: 'Revenue by Medium' },
     organic_details: { title: '🔍 Top Organic Performance', subtitle: 'Pages & Search Queries' },
+    bing_ads: { title: '🔵 Bing Ads Performance' },
 };
 const allOverviewTileIds = Object.keys(allOverviewTileDefs);
-const defaultVisibleOverviewTileIds = ['snapshot_and_links', 'budget_status', 'feed_status', 'store_status', 'items_in_feed', 'google_ads', 'organic_search', 'google_analytics', 'organic_details'];
+const defaultVisibleOverviewTileIds = ['snapshot_and_links', 'budget_status', 'feed_status', 'store_status', 'items_in_feed', 'google_ads', 'organic_search', 'google_analytics', 'organic_details', 'bing_ads'];
 const initialOverviewLayouts = {
     lg: [
         // Row 1
@@ -51,6 +53,8 @@ const initialOverviewLayouts = {
         { i: 'google_ads', x: 1, y: 3, w: 1, h: 1, minH: 1 },
         // Row 5
         { i: 'organic_details', x: 0, y: 4, w: 2, h: 1, minH: 1 },
+        // Row 6
+        { i: 'bing_ads', x: 0, y: 5, w: 1, h: 1 },
     ],
 };
 
@@ -178,16 +182,17 @@ interface DashboardProps {
     googleSearchConsoleData: GoogleSearchConsoleRecord[] | null;
     googleAnalyticsData: GoogleAnalyticsRecord[] | null;
     googleAdsData: GoogleAdsRecord[] | null;
+    bingAdsData: BingAdsRecord[] | null;
     isModalOpen: boolean;
     setIsModalOpen: (isOpen: boolean) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountDetails, keyContact, itemsInFeedData, theme, feedStatus, percentApprovedData, storeStatus, currentStatus, onUpdateCurrentStatus, storeChanges, budgetStatus, revolutionLinks, googleSearchConsoleData, googleAnalyticsData, googleAdsData, isModalOpen, setIsModalOpen }) => {
+const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountDetails, keyContact, itemsInFeedData, theme, feedStatus, percentApprovedData, storeStatus, currentStatus, onUpdateCurrentStatus, storeChanges, budgetStatus, revolutionLinks, googleSearchConsoleData, googleAnalyticsData, googleAdsData, bingAdsData, isModalOpen, setIsModalOpen }) => {
     
     // State for layouts
     const [overviewLayouts, setOverviewLayouts] = useState(() => {
         try {
-            const saved = localStorage.getItem('dashboard-overview-layouts-v8');
+            const saved = localStorage.getItem('dashboard-overview-layouts-v9');
             return saved ? JSON.parse(saved) : initialOverviewLayouts;
         } catch (e) { return initialOverviewLayouts; }
     });
@@ -209,7 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
     // State for visible items
     const [selectedOverviewTiles, setSelectedOverviewTiles] = useState<string[]>(() => {
         try {
-            const saved = localStorage.getItem('dashboard-selected-overview-v5');
+            const saved = localStorage.getItem('dashboard-selected-overview-v6');
             return saved ? JSON.parse(saved) : defaultVisibleOverviewTileIds;
         } catch (e) { return defaultVisibleOverviewTileIds; }
     });
@@ -261,6 +266,10 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
     const [googleAdsViewMode, setGoogleAdsViewMode] = useState<'time' | 'month'>(() => (localStorage.getItem('dashboard-google-ads-view-mode-v1') as 'time' | 'month') || 'time');
     const [googleAdsSelectedMonth, setGoogleAdsSelectedMonth] = useState<string>(() => localStorage.getItem('dashboard-google-ads-selected-month-v1') || '');
 
+    const [bingAdsTimeRange, setBingAdsTimeRange] = useState<GoogleAdsTimeRange>(() => (localStorage.getItem('dashboard-bing-ads-time-range-v1') as GoogleAdsTimeRange) || '3');
+    const [bingAdsViewMode, setBingAdsViewMode] = useState<'time' | 'month'>(() => (localStorage.getItem('dashboard-bing-ads-view-mode-v1') as 'time' | 'month') || 'time');
+    const [bingAdsSelectedMonth, setBingAdsSelectedMonth] = useState<string>(() => localStorage.getItem('dashboard-bing-ads-selected-month-v1') || '');
+
     // State for organic details tile
     const [selectedOrganicMonth, setSelectedOrganicMonth] = useState<string>('');
     const [selectedGaMonth, setSelectedGaMonth] = useState<string>('');
@@ -295,10 +304,10 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
     const [dragOverCol, setDragOverCol] = useState<string | null>(null);
 
     // Persist state to localStorage
-    useEffect(() => { localStorage.setItem('dashboard-overview-layouts-v8', JSON.stringify(overviewLayouts)); }, [overviewLayouts]);
+    useEffect(() => { localStorage.setItem('dashboard-overview-layouts-v9', JSON.stringify(overviewLayouts)); }, [overviewLayouts]);
     useEffect(() => { localStorage.setItem('dashboard-kpi-layouts-v9', JSON.stringify(kpiLayouts)); }, [kpiLayouts]);
     useEffect(() => { localStorage.setItem('dashboard-chart-layouts-v8', JSON.stringify(chartLayouts)); }, [chartLayouts]);
-    useEffect(() => { localStorage.setItem('dashboard-selected-overview-v5', JSON.stringify(selectedOverviewTiles)); }, [selectedOverviewTiles]);
+    useEffect(() => { localStorage.setItem('dashboard-selected-overview-v6', JSON.stringify(selectedOverviewTiles)); }, [selectedOverviewTiles]);
     useEffect(() => { localStorage.setItem('dashboard-selected-kpis-v9', JSON.stringify(selectedKpis)); }, [selectedKpis]);
     useEffect(() => { localStorage.setItem('dashboard-selected-charts-v7', JSON.stringify(selectedCharts)); }, [selectedCharts]);
     useEffect(() => { localStorage.setItem('dashboard-selected-table-cols-v3', JSON.stringify(selectedTableColumns)); }, [selectedTableColumns]);
@@ -313,6 +322,9 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
     useEffect(() => { localStorage.setItem('dashboard-google-ads-time-range-v1', googleAdsTimeRange); }, [googleAdsTimeRange]);
     useEffect(() => { localStorage.setItem('dashboard-google-ads-view-mode-v1', googleAdsViewMode); }, [googleAdsViewMode]);
     useEffect(() => { localStorage.setItem('dashboard-google-ads-selected-month-v1', googleAdsSelectedMonth); }, [googleAdsSelectedMonth]);
+    useEffect(() => { localStorage.setItem('dashboard-bing-ads-time-range-v1', bingAdsTimeRange); }, [bingAdsTimeRange]);
+    useEffect(() => { localStorage.setItem('dashboard-bing-ads-view-mode-v1', bingAdsViewMode); }, [bingAdsViewMode]);
+    useEffect(() => { localStorage.setItem('dashboard-bing-ads-selected-month-v1', bingAdsSelectedMonth); }, [bingAdsSelectedMonth]);
     useEffect(() => { localStorage.setItem('ai-chat-system-prompt', systemPrompt); }, [systemPrompt]);
 
     // Sync editable prompt state when modal opens
@@ -355,6 +367,16 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
             }
         }
     }, [googleAdsData, googleAdsSelectedMonth]);
+
+    useEffect(() => {
+        if (bingAdsData && bingAdsData.length > 0) {
+            const availableMonths = bingAdsData.map(d => d.Date);
+            // If the saved month is no longer valid (e.g., data changed), or not set, pick the latest one.
+            if (!bingAdsSelectedMonth || !availableMonths.includes(bingAdsSelectedMonth)) {
+                setBingAdsSelectedMonth(bingAdsData[bingAdsData.length - 1].Date);
+            }
+        }
+    }, [bingAdsData, bingAdsSelectedMonth]);
 
     const createLayoutChangeHandler = (setLayouts: React.Dispatch<React.SetStateAction<any>>) => (layout: any, allLayouts: any) => {
         setLayouts(prevLayouts => {
@@ -741,6 +763,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
         organic_search: { comp: organicSearchChartData ? <ChartWrapper type="line" data={{ labels: organicSearchChartData.labels, datasets: [{ label: 'Impressions', yAxisID: 'y', data: organicSearchChartData.impressions, borderColor: theme.colors['--color-accent-secondary'], backgroundColor: `color-mix(in srgb, ${theme.colors['--color-accent-secondary']} 20%, transparent)`, borderWidth: 2, fill: true, tension: 0.4 }, { label: 'Clicks', yAxisID: 'y1', data: organicSearchChartData.clicks, borderColor: theme.colors['--color-accent'], backgroundColor: `color-mix(in srgb, ${theme.colors['--color-accent']} 20%, transparent)`, borderWidth: 2, fill: true, tension: 0.4 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: theme.colors['--color-text-secondary'] } }, datalabels: { display: false } }, scales: { y: { type: 'linear', display: true, position: 'left', beginAtZero: scaleOrganicSearchYAxisToZero, ticks: { color: theme.colors['--color-text-secondary'], callback: (v: any) => v.toLocaleString() }, grid: { color: theme.colors['--color-border'] } }, y1: { type: 'linear', display: true, position: 'right', beginAtZero: scaleOrganicSearchYAxisToZero, ticks: { color: theme.colors['--color-text-secondary'], callback: (v: any) => v.toLocaleString() }, grid: { drawOnChartArea: false } }, x: { ticks: { color: theme.colors['--color-text-secondary'], maxTicksLimit: 12 }, grid: { display: false } } } }} /> : null },
         google_analytics: { comp: googleAnalyticsData ? <GoogleAnalyticsTile view={gaView} snapshotData={googleAnalyticsDataForSelectedMonth} trendData={googleAnalyticsData} timeRange={gaTimeRange} theme={theme} /> : null },
         organic_details: { comp: organicDetailsDataForSelectedMonth ? <TopOrganicPerformanceTile data={organicDetailsDataForSelectedMonth} accountDetails={accountDetails} /> : null },
+        bing_ads: { comp: bingAdsData ? <BingAdsTile allData={bingAdsData} viewMode={bingAdsViewMode} timeRange={bingAdsTimeRange} selectedMonth={bingAdsSelectedMonth} /> : null },
     };
 
     const getTileDate = (id: string) => {
@@ -831,7 +854,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
                 <div className="text-2xl text-center font-semibold mb-6 text-[var(--color-text-primary)]">
                     Client Overview
                 </div>
-                <ResponsiveGridLayout className="layout" layouts={overviewLayouts} onLayoutChange={onOverviewLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 2, md: 2, sm: 1, xs: 1, xxs: 1}} rowHeight={400} draggableHandle=".drag-handle" isDraggable={false} isResizable={false}>
+                <ResponsiveGridLayout className="layout" layouts={overviewLayouts} onLayoutChange={onOverviewLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 2, md: 2, sm: 1, xs: 1, xxs: 1}} rowHeight={400} draggableHandle=".drag-handle" isDraggable={true} isResizable={true}>
                     {selectedOverviewTiles.map(id => {
                         const def = allOverviewTileDefs[id];
                         const tileContent = (fullOverviewTileDefs as any)[id]?.comp;
@@ -880,6 +903,28 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
                                     )}
                                 </div>
                             );
+                        } else if (id === 'bing_ads') {
+                            headerControls = (
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center bg-black/20 p-1 rounded-lg">
+                                        <button onClick={() => setBingAdsViewMode('time')} className={`px-2 py-1 text-xs font-semibold rounded-md transition-colors ${bingAdsViewMode === 'time' ? 'bg-[var(--color-accent)] text-white' : 'text-[var(--color-text-secondary)] hover:bg-white/10'}`}>Time Range</button>
+                                        <button onClick={() => setBingAdsViewMode('month')} className={`px-2 py-1 text-xs font-semibold rounded-md transition-colors ${bingAdsViewMode === 'month' ? 'bg-[var(--color-accent)] text-white' : 'text-[var(--color-text-secondary)] hover:bg-white/10'}`}>Month</button>
+                                    </div>
+                                    {bingAdsViewMode === 'time' ? (
+                                        <select value={bingAdsTimeRange} onChange={e => setBingAdsTimeRange(e.target.value as GoogleAdsTimeRange)} aria-label="Select time range for Bing Ads tile" className="text-xs bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] rounded-lg focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)] p-1.5">
+                                            <option value="1">Last Month</option>
+                                            <option value="3">Last 3 Months</option>
+                                            <option value="6">Last 6 Months</option>
+                                            <option value="9">Last 9 Months</option>
+                                            <option value="12">Last 12 Months</option>
+                                        </select>
+                                    ) : (
+                                        <select value={bingAdsSelectedMonth} onChange={e => setBingAdsSelectedMonth(e.target.value)} aria-label="Select month for Bing Ads tile" className="text-xs bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] rounded-lg focus:ring-[var(--color-accent)] focus:border-[var(--color-accent)] p-1.5">
+                                            {bingAdsData && [...bingAdsData].reverse().map(d => <option key={d.Date} value={d.Date}>{new Date(d.Date).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</option>)}
+                                        </select>
+                                    )}
+                                </div>
+                            );
                         }
 
                         return (
@@ -912,7 +957,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
                     )}
                 </div>
                 {projectionData ? (
-                    <ResponsiveGridLayout className="layout" layouts={kpiLayouts} onLayoutChange={onKpiLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 4, md: 4, sm: 2, xs: 1, xxs: 1}} rowHeight={220} draggableHandle=".drag-handle" isDraggable={false} isResizable={false}>
+                    <ResponsiveGridLayout className="layout" layouts={kpiLayouts} onLayoutChange={onKpiLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 4, md: 4, sm: 2, xs: 1, xxs: 1}} rowHeight={220} draggableHandle=".drag-handle" isDraggable={true} isResizable={true}>
                         {visibleKpiDefs.map(([id, def]) => {
                             const { displayMonthData, previousMonthData, lastYearMonthData } = projectionData;
                             const metricKey = def.m as keyof ClientDataRecord;
@@ -960,7 +1005,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clientData, lastUpdated, accountD
                     <label className="flex items-center space-x-2 text-sm text-[var(--color-text-secondary)] cursor-pointer"><input type="checkbox" checked={scaleYAxisToZero} onChange={(e) => setScaleYAxisToZero(e.target.checked)} className="h-4 w-4 rounded bg-slate-700 border-slate-500 text-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]" /><span>Scale to 0</span></label>
                 </div>
                 {visibleChartDefs.length > 0 ? (
-                    <ResponsiveGridLayout className="layout" layouts={chartLayouts} onLayoutChange={onChartLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 2, md: 2, sm: 1, xs: 1, xxs: 1}} rowHeight={300} draggableHandle=".drag-handle" isDraggable={false} isResizable={false}>
+                    <ResponsiveGridLayout className="layout" layouts={chartLayouts} onLayoutChange={onChartLayoutChange} breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}} cols={{lg: 2, md: 2, sm: 1, xs: 1, xxs: 1}} rowHeight={300} draggableHandle=".drag-handle" isDraggable={true} isResizable={true}>
                         {visibleChartDefs.map(chart => (<div key={chart.id}><ChartGridItem title={chart.title}><div className="h-full"><ChartWrapper type="line" data={{ labels: chart.labels, datasets: chart.datasets }} options={chart.options} /></div></ChartGridItem></div>))}
                     </ResponsiveGridLayout>
                 ) : (

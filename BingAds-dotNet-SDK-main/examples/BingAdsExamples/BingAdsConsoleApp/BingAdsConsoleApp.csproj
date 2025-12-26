@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyTitle>BingAdsConsoleApp</AssemblyTitle>
+    <Product>BingAdsConsoleApp</Product>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BingAdsExamplesLibrary\BingAdsExamplesLibrary.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+	<PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.TraceSource" Version="8.0.0" />
+  </ItemGroup>
+</Project>

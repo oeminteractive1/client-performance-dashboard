@@ -38,6 +38,19 @@ const client = new GoogleAdsApi({
   developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
 });
 
+// Initialize Google Analytics Data API client
+const { BetaAnalyticsDataClient } = require('@google-analytics/data');
+const analyticsDataClient = new BetaAnalyticsDataClient({
+  keyFilename: path.join(__dirname, 'ga-service-account.json')
+});
+
+// Initialize Google Merchant Center API client (uses same key as GA4)
+const { google } = require('googleapis');
+const merchantAuth = new google.auth.GoogleAuth({
+  keyFile: path.join(__dirname, 'ga-service-account.json'),
+  scopes: ['https://www.googleapis.com/auth/content']
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -598,6 +611,106 @@ app.get('/api/accounts', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message 
+    });
+  }
+});
+
+// Get Google Ads Promotion Assets
+app.post('/api/google-ads/promotions', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'customerId is required'
+      });
+    }
+
+    console.log(`Fetching promotions for customer: ${customerId}`);
+
+    const customer = client.Customer({
+      customer_id: customerId,
+      login_customer_id: process.env.GOOGLE_ADS_MCC_ID,
+      refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN,
+    });
+
+    // Query all promotion assets - using only basic selectable fields
+    const query = `
+      SELECT
+        asset.resource_name,
+        asset.name,
+        asset.type,
+        asset.promotion_asset.promotion_target,
+        asset.promotion_asset.promotion_code,
+        asset.promotion_asset.percent_off,
+        asset.promotion_asset.start_date,
+        asset.promotion_asset.end_date,
+        asset.promotion_asset.occasion
+      FROM asset
+      WHERE asset.type = 'PROMOTION'
+      ORDER BY asset.promotion_asset.end_date DESC
+    `;
+
+    console.log('Running promotions query...');
+    const results = await customer.query(query);
+
+    console.log(`✓ Raw query returned ${results.length} results`);
+    if (results.length > 0) {
+      console.log('✓ All promotion results:');
+      results.forEach((row, idx) => {
+        console.log(`  ${idx + 1}. ${row.asset.resource_name} - End: ${row.asset.promotion_asset?.end_date || 'none'}`);
+      });
+    } else {
+      console.log('⚠️ No promotion assets found');
+    }
+
+    // Filter out expired promotions
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); // Set to start of day for comparison
+    console.log(`📅 Today's date: ${now.toISOString().split('T')[0]}`);
+
+    const activePromotions = results.filter(row => {
+      const endDate = row.asset?.promotion_asset?.end_date;
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(0, 0, 0, 0);
+        const isActive = endDateObj >= now;
+        console.log(`  ${row.asset.resource_name.split('/').pop()} - End: ${endDate} - ${isActive ? '✓ ACTIVE' : '✗ EXPIRED'}`);
+        return isActive;
+      }
+      console.log(`  ${row.asset.resource_name.split('/').pop()} - No end date - ✓ INCLUDED`);
+      return true; // Include if no end date
+    });
+
+    const formattedPromotions = activePromotions.map(row => ({
+      resourceName: row.asset?.resource_name,
+      name: row.asset?.promotion_asset?.promotion_target || row.asset?.name || 'Unnamed Promotion',
+      promotionCode: row.asset?.promotion_asset?.promotion_code,
+      percentOff: row.asset?.promotion_asset?.percent_off
+        ? row.asset.promotion_asset.percent_off / 10000 // Convert from micros (150000 = 15%)
+        : null,
+      moneyAmountOff: null, // Not available in basic query
+      currency: null,
+      startDate: row.asset?.promotion_asset?.start_date || null,
+      endDate: row.asset?.promotion_asset?.end_date || null,
+      occasion: row.asset?.promotion_asset?.occasion,
+      status: 'ACTIVE' // Since we're querying all assets, mark as active
+    }));
+
+    console.log(`Found ${formattedPromotions.length} active promotions`);
+
+    res.json({
+      success: true,
+      promotions: formattedPromotions,
+      count: formattedPromotions.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching Google Ads promotions:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -1405,11 +1518,762 @@ app.post('/api/update-campaign-budget', async (req, res) => {
   }
 });
 
+// ===== GOOGLE ANALYTICS DATA API ENDPOINTS =====
+
+// POST /api/ga/traffic-by-medium
+// Fetch traffic data grouped by channel grouping (Organic Search, Direct, Paid Search, etc.)
+app.post('/api/ga/traffic-by-medium', async (req, res) => {
+  try {
+    const { propertyId, dateRange, startDate, endDate } = req.body;
+
+    if (!propertyId) {
+      return res.status(400).json({ error: 'Property ID is required' });
+    }
+
+    // Calculate date range
+    let startDateFormatted, endDateFormatted;
+    if (startDate && endDate) {
+      // Specific date range provided (month mode)
+      startDateFormatted = startDate;
+      endDateFormatted = endDate;
+    } else {
+      // Use dateRange (timespan mode - last X days)
+      const days = parseInt(dateRange || '30');
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days);
+
+      startDateFormatted = start.toISOString().split('T')[0]; // Keep dashes for GA4
+      endDateFormatted = end.toISOString().split('T')[0]; // Keep dashes for GA4
+    }
+
+    console.log(`Fetching GA4 data for property ${propertyId} from ${startDateFormatted} to ${endDateFormatted}`);
+
+    // Run GA4 report
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${propertyId}`,
+      dateRanges: [{
+        startDate: startDateFormatted,
+        endDate: endDateFormatted
+      }],
+      dimensions: [
+        { name: 'sessionSource' },
+        { name: 'sessionMedium' },
+        { name: 'date' }
+      ],
+      metrics: [
+        { name: 'sessions' },
+        { name: 'totalUsers' },
+        { name: 'totalRevenue' },
+        { name: 'conversions' },
+        { name: 'bounceRate' },
+        { name: 'averageSessionDuration' },
+        { name: 'screenPageViewsPerSession' }
+      ]
+    });
+
+    // Helper function to categorize traffic
+    const categorizeTraffic = (source, medium) => {
+      const mediumLower = medium.toLowerCase();
+      const sourceLower = source.toLowerCase();
+
+      // Paid traffic
+      if (mediumLower.includes('cpc') || mediumLower.includes('ppc') ||
+          mediumLower.includes('paid') || mediumLower === 'paidsearch') {
+        return 'Paid';
+      }
+
+      // Organic traffic
+      if (mediumLower === 'organic') {
+        return 'Organic';
+      }
+
+      // Direct traffic
+      if ((sourceLower === '(direct)' && mediumLower === '(none)') ||
+          mediumLower === 'direct') {
+        return 'Direct';
+      }
+
+      // Other traffic (we'll filter this out for now)
+      return 'Other';
+    };
+
+    // Process response - group by traffic type
+    const mediumMap = new Map();
+    const totalSessions = { value: 0 };
+
+    if (response.rows) {
+      response.rows.forEach(row => {
+        const source = row.dimensionValues[0].value;
+        const medium = row.dimensionValues[1].value;
+        const date = row.dimensionValues[2].value;
+
+        // Categorize into Paid, Organic, Direct
+        const category = categorizeTraffic(source, medium);
+
+        // Skip "Other" traffic for now
+        if (category === 'Other') return;
+
+        const metrics = {
+          sessions: parseInt(row.metricValues[0].value || '0'),
+          users: parseInt(row.metricValues[1].value || '0'),
+          revenue: parseFloat(row.metricValues[2].value || '0'),
+          conversions: parseFloat(row.metricValues[3].value || '0'),
+          bounceRate: parseFloat(row.metricValues[4].value || '0'),
+          avgSessionDuration: parseFloat(row.metricValues[5].value || '0'),
+          pagesPerSession: parseFloat(row.metricValues[6].value || '0')
+        };
+
+        totalSessions.value += metrics.sessions;
+
+        if (!mediumMap.has(category)) {
+          mediumMap.set(category, {
+            medium: category,
+            sessions: 0,
+            users: 0,
+            revenue: 0,
+            conversions: 0,
+            bounceRateSum: 0,
+            avgSessionDurationSum: 0,
+            pagesPerSessionSum: 0,
+            dataPoints: 0,
+            dailyData: []
+          });
+        }
+
+        const mediumData = mediumMap.get(category);
+        mediumData.sessions += metrics.sessions;
+        mediumData.users += metrics.users;
+        mediumData.revenue += metrics.revenue;
+        mediumData.conversions += metrics.conversions;
+        mediumData.bounceRateSum += metrics.bounceRate;
+        mediumData.avgSessionDurationSum += metrics.avgSessionDuration;
+        mediumData.pagesPerSessionSum += metrics.pagesPerSession;
+        mediumData.dataPoints++;
+        mediumData.dailyData.push({
+          date,
+          sessions: metrics.sessions,
+          revenue: metrics.revenue,
+          bounceRate: metrics.bounceRate,
+          avgSessionDuration: metrics.avgSessionDuration
+        });
+      });
+    }
+
+    // Calculate averages
+    const mediumData = Array.from(mediumMap.values()).map(data => ({
+      medium: data.medium,
+      sessions: data.sessions,
+      users: data.users,
+      revenue: data.revenue,
+      conversions: data.conversions,
+      bounceRate: data.dataPoints > 0 ? data.bounceRateSum / data.dataPoints : 0,
+      avgSessionDuration: data.dataPoints > 0 ? data.avgSessionDurationSum / data.dataPoints : 0,
+      pagesPerSession: data.dataPoints > 0 ? data.pagesPerSessionSum / data.dataPoints : 0,
+      dailyData: data.dailyData
+    }));
+
+    res.json({
+      success: true,
+      mediumData,
+      totals: {
+        sessions: totalSessions.value,
+        users: mediumData.reduce((sum, m) => sum + m.users, 0),
+        revenue: mediumData.reduce((sum, m) => sum + m.revenue, 0),
+        conversions: mediumData.reduce((sum, m) => sum + m.conversions, 0)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching GA traffic by medium:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/ga/landing-pages
+// Fetch top landing pages performance
+app.post('/api/ga/landing-pages', async (req, res) => {
+  try {
+    const { propertyId, dateRange, startDate, endDate } = req.body;
+
+    if (!propertyId) {
+      return res.status(400).json({ error: 'Property ID is required' });
+    }
+
+    // Calculate date range
+    let startDateFormatted, endDateFormatted;
+    if (startDate && endDate) {
+      startDateFormatted = startDate;
+      endDateFormatted = endDate;
+    } else {
+      const days = parseInt(dateRange || '30');
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days);
+
+      startDateFormatted = start.toISOString().split('T')[0]; // Keep dashes for GA4
+      endDateFormatted = end.toISOString().split('T')[0]; // Keep dashes for GA4
+    }
+
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${propertyId}`,
+      dateRanges: [{
+        startDate: startDateFormatted,
+        endDate: endDateFormatted
+      }],
+      dimensions: [
+        { name: 'landingPagePlusQueryString' }
+      ],
+      metrics: [
+        { name: 'sessions' },
+        { name: 'totalUsers' },
+        { name: 'conversions' },
+        { name: 'totalRevenue' },
+        { name: 'bounceRate' }
+      ],
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit: 50
+    });
+
+    const landingPages = response.rows ? response.rows.map(row => ({
+      page: row.dimensionValues[0].value,
+      sessions: parseInt(row.metricValues[0].value || '0'),
+      users: parseInt(row.metricValues[1].value || '0'),
+      conversions: parseFloat(row.metricValues[2].value || '0'),
+      revenue: parseFloat(row.metricValues[3].value || '0'),
+      bounceRate: parseFloat(row.metricValues[4].value || '0')
+    })) : [];
+
+    res.json({
+      success: true,
+      landingPages
+    });
+
+  } catch (error) {
+    console.error('Error fetching GA landing pages:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/ga/device-breakdown
+// Fetch performance by device category
+app.post('/api/ga/device-breakdown', async (req, res) => {
+  try {
+    const { propertyId, dateRange, startDate, endDate } = req.body;
+
+    if (!propertyId) {
+      return res.status(400).json({ error: 'Property ID is required' });
+    }
+
+    // Calculate date range
+    let startDateFormatted, endDateFormatted;
+    if (startDate && endDate) {
+      startDateFormatted = startDate;
+      endDateFormatted = endDate;
+    } else {
+      const days = parseInt(dateRange || '30');
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days);
+
+      startDateFormatted = start.toISOString().split('T')[0]; // Keep dashes for GA4
+      endDateFormatted = end.toISOString().split('T')[0]; // Keep dashes for GA4
+    }
+
+    const [response] = await analyticsDataClient.runReport({
+      property: `properties/${propertyId}`,
+      dateRanges: [{
+        startDate: startDateFormatted,
+        endDate: endDateFormatted
+      }],
+      dimensions: [
+        { name: 'deviceCategory' }
+      ],
+      metrics: [
+        { name: 'sessions' },
+        { name: 'totalUsers' },
+        { name: 'conversions' },
+        { name: 'totalRevenue' }
+      ]
+    });
+
+    const totalSessions = response.rows ? response.rows.reduce((sum, row) =>
+      sum + parseInt(row.metricValues[0].value || '0'), 0) : 0;
+
+    const deviceData = response.rows ? response.rows.map(row => {
+      const sessions = parseInt(row.metricValues[0].value || '0');
+      return {
+        device: row.dimensionValues[0].value,
+        sessions,
+        users: parseInt(row.metricValues[1].value || '0'),
+        conversions: parseFloat(row.metricValues[2].value || '0'),
+        revenue: parseFloat(row.metricValues[3].value || '0'),
+        percentOfTotal: totalSessions > 0 ? (sessions / totalSessions) * 100 : 0
+      };
+    }) : [];
+
+    res.json({
+      success: true,
+      deviceData
+    });
+
+  } catch (error) {
+    console.error('Error fetching GA device breakdown:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/ga/performance-comparison
+// Compare current period vs previous period
+app.post('/api/ga/performance-comparison', async (req, res) => {
+  try {
+    const { propertyId } = req.body;
+
+    if (!propertyId) {
+      return res.status(400).json({ error: 'Property ID is required' });
+    }
+
+    const periods = ['7', '14', '30', '60', '90'];
+    const comparisons = {};
+
+    for (const period of periods) {
+      const days = parseInt(period);
+
+      // Current period
+      const currentEnd = new Date();
+      const currentStart = new Date();
+      currentStart.setDate(currentEnd.getDate() - days);
+
+      // Previous period
+      const previousEnd = new Date(currentStart);
+      previousEnd.setDate(previousEnd.getDate() - 1);
+      const previousStart = new Date(previousEnd);
+      previousStart.setDate(previousStart.getDate() - days);
+
+      const formatDate = (date) => date.toISOString().split('T')[0]; // Keep dashes for GA4
+
+      const [response] = await analyticsDataClient.runReport({
+        property: `properties/${propertyId}`,
+        dateRanges: [
+          {
+            startDate: formatDate(currentStart),
+            endDate: formatDate(currentEnd),
+            name: 'current'
+          },
+          {
+            startDate: formatDate(previousStart),
+            endDate: formatDate(previousEnd),
+            name: 'previous'
+          }
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'totalRevenue' },
+          { name: 'conversions' }
+        ]
+      });
+
+      if (response.rows && response.rows.length > 0) {
+        const currentSessions = parseInt(response.rows[0].metricValues[0].value || '0');
+        const currentRevenue = parseFloat(response.rows[0].metricValues[1].value || '0');
+        const currentConversions = parseFloat(response.rows[0].metricValues[2].value || '0');
+
+        const previousSessions = parseInt(response.rows[0].metricValues[3].value || '0');
+        const previousRevenue = parseFloat(response.rows[0].metricValues[4].value || '0');
+        const previousConversions = parseFloat(response.rows[0].metricValues[5].value || '0');
+
+        comparisons[`${period}d`] = {
+          sessions: previousSessions > 0 ? ((currentSessions - previousSessions) / previousSessions) * 100 : 0,
+          revenue: previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue) * 100 : 0,
+          conversions: previousConversions > 0 ? ((currentConversions - previousConversions) / previousConversions) * 100 : 0
+        };
+      }
+    }
+
+    res.json({
+      success: true,
+      comparisons
+    });
+
+  } catch (error) {
+    console.error('Error fetching GA performance comparison:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET /api/ga/properties
+// List available GA4 properties (optional - for debugging)
+app.get('/api/ga/properties', async (req, res) => {
+  try {
+    // Note: This would require additional setup with Google Analytics Admin API
+    // For now, returning a placeholder response
+    res.json({
+      success: true,
+      message: 'Property listing requires Google Analytics Admin API setup',
+      properties: []
+    });
+  } catch (error) {
+    console.error('Error fetching GA properties:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/merchant-center/product-performance
+// Fetch product performance data using Merchant Reports API
+app.post('/api/merchant-center/product-performance', async (req, res) => {
+  try {
+    const { merchantId, startDate, endDate, dateRange } = req.body;
+
+    const merchantIdToUse = merchantId || process.env.MERCHANT_CENTER_MERCHANT_ID;
+
+    if (!merchantIdToUse) {
+      return res.status(400).json({ error: 'Merchant ID is required' });
+    }
+
+    // Calculate date range (matches GA4 pattern)
+    let startDateFormatted, endDateFormatted;
+    if (startDate && endDate) {
+      startDateFormatted = startDate; // YYYY-MM-DD format
+      endDateFormatted = endDate;
+    } else {
+      const days = parseInt(dateRange || '30');
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days);
+
+      startDateFormatted = start.toISOString().split('T')[0];
+      endDateFormatted = end.toISOString().split('T')[0];
+    }
+
+    console.log(`Fetching Merchant Center performance for ${merchantIdToUse}: ${startDateFormatted} to ${endDateFormatted}`);
+
+    // Use Content API v2.1 for reports
+    const content = google.content('v2.1');
+    const auth = await merchantAuth.getClient();
+
+    // Build MCQL-style query for product performance view
+    const response = await content.reports.search({
+      auth: auth,
+      merchantId: merchantIdToUse,
+      requestBody: {
+        query: `
+          SELECT
+            segments.offer_id,
+            segments.title,
+            segments.brand,
+            segments.product_type_l1,
+            metrics.clicks,
+            metrics.impressions,
+            metrics.ctr,
+            metrics.conversions,
+            metrics.conversion_value_micros
+          FROM MerchantPerformanceView
+          WHERE segments.date BETWEEN '${startDateFormatted}' AND '${endDateFormatted}'
+        `
+      }
+    });
+
+    // Aggregate performance data
+    const performanceData = {
+      totalClicks: 0,
+      totalImpressions: 0,
+      totalConversions: 0,
+      totalConversionValue: 0,
+      products: []
+    };
+
+    if (response.data.results) {
+      response.data.results.forEach(row => {
+        const clicks = parseInt(row.metrics?.clicks || '0');
+        const impressions = parseInt(row.metrics?.impressions || '0');
+        const conversions = parseFloat(row.metrics?.conversions || '0');
+        const conversionValueMicros = parseFloat(row.metrics?.conversion_value_micros || '0');
+        const conversionValue = conversionValueMicros / 1000000; // Convert micros to dollars
+
+        performanceData.totalClicks += clicks;
+        performanceData.totalImpressions += impressions;
+        performanceData.totalConversions += conversions;
+        performanceData.totalConversionValue += conversionValue;
+
+        performanceData.products.push({
+          offerId: row.segments?.offer_id,
+          title: row.segments?.title,
+          brand: row.segments?.brand,
+          category: row.segments?.product_type_l1,
+          clicks,
+          impressions,
+          ctr: parseFloat(row.metrics?.ctr || '0'),
+          conversions,
+          conversionValue
+        });
+      });
+    }
+
+    // Calculate derived metrics
+    performanceData.avgCTR = performanceData.totalImpressions > 0
+      ? (performanceData.totalClicks / performanceData.totalImpressions) * 100
+      : 0;
+    performanceData.conversionRate = performanceData.totalClicks > 0
+      ? (performanceData.totalConversions / performanceData.totalClicks) * 100
+      : 0;
+
+    res.json({
+      success: true,
+      performance: performanceData
+    });
+
+  } catch (error) {
+    console.error('Error fetching Merchant Center performance:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/merchant-center/feed-status
+// Fetch product feed health and issues
+app.post('/api/merchant-center/feed-status', async (req, res) => {
+  try {
+    const { merchantId } = req.body;
+
+    const merchantIdToUse = merchantId || process.env.MERCHANT_CENTER_MERCHANT_ID;
+
+    if (!merchantIdToUse) {
+      return res.status(400).json({ error: 'Merchant ID is required' });
+    }
+
+    console.log(`Fetching feed status for Merchant ${merchantIdToUse}`);
+
+    const content = google.content('v2.1');
+    const auth = await merchantAuth.getClient();
+
+    // Get product status statistics
+    const statsResponse = await content.productstatuses.list({
+      auth: auth,
+      merchantId: merchantIdToUse,
+      maxResults: 250 // Sample products to analyze issues
+    });
+
+    const feedStatus = {
+      totalProducts: 0,
+      activeProducts: 0,
+      disapprovedProducts: 0,
+      pendingProducts: 0,
+      issues: {},
+      topIssues: []
+    };
+
+    if (statsResponse.data.resources) {
+      feedStatus.totalProducts = statsResponse.data.resources.length;
+
+      statsResponse.data.resources.forEach(product => {
+        const destinationStatuses = product.destinationStatuses || [];
+
+        destinationStatuses.forEach(destStatus => {
+          if (destStatus.destination === 'Shopping') {
+            const status = destStatus.status;
+
+            if (status === 'approved') {
+              feedStatus.activeProducts++;
+            } else if (status === 'disapproved') {
+              feedStatus.disapprovedProducts++;
+            } else if (status === 'pending') {
+              feedStatus.pendingProducts++;
+            }
+
+            // Collect issues
+            const itemIssues = product.itemLevelIssues || [];
+            itemIssues.forEach(issue => {
+              const issueCode = issue.code;
+              if (!feedStatus.issues[issueCode]) {
+                feedStatus.issues[issueCode] = {
+                  code: issueCode,
+                  description: issue.description,
+                  count: 0
+                };
+              }
+              feedStatus.issues[issueCode].count++;
+            });
+          }
+        });
+      });
+
+      // Get top 5 issues by count
+      feedStatus.topIssues = Object.values(feedStatus.issues)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    }
+
+    // Calculate approval rate
+    feedStatus.approvalRate = feedStatus.totalProducts > 0
+      ? (feedStatus.activeProducts / feedStatus.totalProducts) * 100
+      : 0;
+
+    res.json({
+      success: true,
+      feedStatus: feedStatus
+    });
+
+  } catch (error) {
+    console.error('Error fetching feed status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// POST /api/merchant-center/promotions
+// Fetch all promotions for a merchant account
+app.post('/api/merchant-center/promotions', async (req, res) => {
+  try {
+    const { merchantId } = req.body;
+
+    if (!merchantId) {
+      return res.status(400).json({
+        success: false,
+        error: 'merchantId is required'
+      });
+    }
+
+    console.log(`Fetching promotions for Merchant ID: ${merchantId}`);
+
+    const content = google.content('v2.1');
+    const auth = await merchantAuth.getClient();
+
+    // Fetch promotions
+    const response = await content.promotions.list({
+      auth: auth,
+      merchantId: merchantId
+    });
+
+    console.log('Promotions API response:', JSON.stringify(response.data, null, 2));
+
+    const promotions = response.data.promotions || [];
+
+    console.log(`Found ${promotions.length} promotions`);
+
+    res.json({
+      success: true,
+      promotions: promotions
+    });
+
+  } catch (error) {
+    console.error('Error fetching promotions:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/merchant-center/promotions/:promotionId
+// Delete a specific promotion
+app.delete('/api/merchant-center/promotions/:promotionId', async (req, res) => {
+  try {
+    const { merchantId } = req.body;
+    const { promotionId } = req.params;
+
+    if (!merchantId || !promotionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'merchantId and promotionId are required'
+      });
+    }
+
+    console.log(`Deleting promotion ${promotionId} for Merchant ID: ${merchantId}`);
+
+    const content = google.content('v2.1');
+    const auth = await merchantAuth.getClient();
+
+    // Delete the promotion
+    await content.promotions.delete({
+      auth: auth,
+      merchantId: merchantId,
+      id: promotionId
+    });
+
+    console.log(`Promotion ${promotionId} deleted successfully`);
+
+    res.json({
+      success: true,
+      message: 'Promotion deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting promotion:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/merchant-center/promotions/:promotionId
+// Update a specific promotion
+app.patch('/api/merchant-center/promotions/:promotionId', async (req, res) => {
+  try {
+    const { merchantId, promotion } = req.body;
+    const { promotionId } = req.params;
+
+    if (!merchantId || !promotionId || !promotion) {
+      return res.status(400).json({
+        success: false,
+        error: 'merchantId, promotionId, and promotion data are required'
+      });
+    }
+
+    console.log(`Updating promotion ${promotionId} for Merchant ID: ${merchantId}`);
+
+    const content = google.content('v2.1');
+    const auth = await merchantAuth.getClient();
+
+    // Update the promotion using patch method
+    const response = await content.promotions.update({
+      auth: auth,
+      merchantId: merchantId,
+      id: promotionId,
+      requestBody: promotion
+    });
+
+    console.log(`Promotion ${promotionId} updated successfully`);
+
+    res.json({
+      success: true,
+      message: 'Promotion updated successfully',
+      promotion: response.data
+    });
+
+  } catch (error) {
+    console.error('Error updating promotion:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => {
-  res.status(404).json({ 
-    success: false, 
-    error: 'Endpoint not found' 
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint not found'
   });
 });
 

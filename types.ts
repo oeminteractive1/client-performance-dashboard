@@ -63,6 +63,7 @@ export interface AccountDetailsRecord {
   Bing?: string;
   AID?: string;
   CID?: string;
+  PropertyID?: string;
   State?: string;
   ShippingMethods?: string;
   SignatureSurcharge?: number | string;
@@ -297,6 +298,123 @@ export interface AllBingAdsData {
     [clientName: string]: BingAdsRecord[];
 }
 
+export interface MerchantCenterPerformanceData {
+  totalClicks: number;
+  totalImpressions: number;
+  totalConversions: number;
+  totalConversionValue: number;
+  avgCTR: number;
+  conversionRate: number;
+  products: MerchantCenterProductData[];
+}
+
+export interface MerchantCenterProductData {
+  offerId: string;
+  title: string;
+  brand: string;
+  category: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  conversions: number;
+  conversionValue: number;
+}
+
+export interface MerchantCenterFeedStatus {
+  totalProducts: number;
+  activeProducts: number;
+  disapprovedProducts: number;
+  pendingProducts: number;
+  approvalRate: number;
+  topIssues: MerchantCenterIssue[];
+}
+
+export interface MerchantCenterIssue {
+  code: string;
+  description: string;
+  count: number;
+}
+
+export interface AllMerchantCenterData {
+  [clientName: string]: {
+    performance: MerchantCenterPerformanceData | null;
+    feedStatus: MerchantCenterFeedStatus | null;
+    lastFetched: Date | null;
+  };
+}
+
+export interface MerchantCenterPromotion {
+  id: string;
+  promotionId: string;
+  contentLanguage: string;
+  targetCountry: string;
+  redemptionChannel: string[];
+  productApplicability: string;
+  offerType: string;
+  genericRedemptionCode?: string;
+  longTitle: string;
+  couponValueType?: string;
+  promotionEffectiveTimePeriod?: {
+    startTime?: string;
+    endTime?: string;
+  };
+  moneyOffAmount?: {
+    value: string;
+    currency: string;
+  };
+  percentOff?: number;
+  minimumPurchaseAmount?: {
+    value: string;
+    currency: string;
+  };
+  promotionDestinations?: string[];
+  itemId?: string;
+  itemIdExclusion?: string[];
+  productTypeExclusion?: string[];
+  brand?: string[];
+  brandExclusion?: string[];
+  promotionDisplayDates?: {
+    startDate?: string;
+    endDate?: string;
+  };
+  promotionStatus?: {
+    destinationStatuses?: Array<{
+      destination: string;
+      status: string;
+    }>;
+    itemLevelIssues?: Array<{
+      code: string;
+      resolution: string;
+      servability: string;
+      description: string;
+      detail?: string;
+      documentation?: string;
+      applicableCountries?: string[];
+    }>;
+    creationDate?: string;
+    lastUpdateDate?: string;
+  };
+}
+
+export interface AllMerchantCenterPromotions {
+  [clientName: string]: MerchantCenterPromotion[];
+}
+
+export interface GoogleAdsPromotion {
+  resourceName: string;
+  name: string;
+  promotionCode?: string;
+  percentOff?: number;
+  moneyAmountOff?: number;
+  currency?: string;
+  startDate?: string;
+  endDate?: string;
+  occasion?: string;
+  status: string;
+  campaignName?: string;
+  campaignId?: string;
+}
+
 export interface NoteRecord {
   clientName: string;
   month: string; // YYYY-MM
@@ -449,6 +567,7 @@ export interface AllToolStates {
     product_availability: ProductAvailabilityToolState;
     file_uploader: FileUploaderToolState;
     manager_dashboard: ManagerDashboardState;
+    google_analytics_playground: GoogleAnalyticsPlaygroundState;
 }
 
 export interface ChatMessage {
@@ -472,4 +591,49 @@ export interface TopQueryItem {
     query: string;
     clicks: number;
     impressions: number;
+}
+
+// ===== GOOGLE ANALYTICS PLAYGROUND INTERFACES =====
+
+export interface GAMediumData {
+  medium: string;
+  sessions: number;
+  users: number;
+  revenue: number;
+  conversions: number;
+  bounceRate: number;
+  avgSessionDuration: number;
+  pagesPerSession: number;
+  dailyData: GADailyData[];
+}
+
+export interface GADailyData {
+  date: string;
+  sessions: number;
+  revenue: number;
+  bounceRate: number;
+  avgSessionDuration: number;
+}
+
+export interface GALandingPageData {
+  page: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+  revenue: number;
+  bounceRate: number;
+}
+
+export interface GADeviceData {
+  device: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+  revenue: number;
+  percentOfTotal: number;
+}
+
+export interface GoogleAnalyticsPlaygroundState {
+  selectedClient: string;
+  selectedPropertyId: string;
 }

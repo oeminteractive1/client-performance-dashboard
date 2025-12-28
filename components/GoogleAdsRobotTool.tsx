@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { AccountDetailsRecord, GoogleAdsRobotToolState, BudgetStatusRecord, AllBudgetStatusData } from '../types';
+import { AccountDetailsRecord, GoogleAdsRobotToolState, BudgetStatusRecord, AllBudgetStatusData, GoogleAdsPromotion } from '../types';
+import GoogleAdsPromotionsTile from './GoogleAdsPromotionsTile';
 
 // Percentage bar component
 const PercentageBar: React.FC<{ percentage: number }> = ({ percentage }) => {
@@ -641,6 +642,8 @@ const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({
     const [performanceComparisonData, setPerformanceComparisonData] = useState<any>(null);
     const [isLoadingComparisonData, setIsLoadingComparisonData] = useState(false);
     const [recommendationView, setRecommendationView] = useState<'allocation' | 'amount'>('amount');
+    const [promotions, setPromotions] = useState<GoogleAdsPromotion[]>([]);
+    const [isLoadingPromotions, setIsLoadingPromotions] = useState(false);
 
     // Get Google Ads ID for selected client
     const getGoogleAdsId = (clientName: string): string | null => {
@@ -1169,6 +1172,54 @@ const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({
             setPerformanceComparisonData(null);
         }
     }, [toolState.selectedClient, fetchPerformanceComparison]);
+
+    // Fetch promotions only when customer ID changes (not on time frame changes)
+    useEffect(() => {
+        if (!currentGoogleAdsId) {
+            setPromotions([]);
+            return;
+        }
+
+        console.log('Fetching promotions for customer ID:', currentGoogleAdsId);
+        setIsLoadingPromotions(true);
+
+        const fetchPromotions = async () => {
+            try {
+                const response = await fetch('http://localhost:3002/api/google-ads/promotions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        customerId: currentGoogleAdsId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Backend API error ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+
+                console.log('Promotions API response:', result);
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Unknown error from backend');
+                }
+
+                console.log(`Loaded ${result.promotions?.length || 0} promotions`);
+                setPromotions(result.promotions || []);
+            } catch (error) {
+                console.error('Error fetching promotions:', error);
+                setPromotions([]);
+            } finally {
+                setIsLoadingPromotions(false);
+            }
+        };
+
+        fetchPromotions();
+    }, [currentGoogleAdsId]); // Only depends on customer ID, not time frame
 
     const fetchCampaigns = async () => {
         if (!currentGoogleAdsId) {
@@ -1896,6 +1947,28 @@ const GoogleAdsRobotTool: React.FC<GoogleAdsRobotToolProps> = ({
                                 : 'Select a client to view performance comparison data'
                             }
                         </div>
+                    )}
+                </div>
+
+                {/* Google Ads Promotions Section */}
+                <div className="mt-8 bg-[var(--color-card-bg)] p-6 rounded-lg border border-[var(--color-border)]">
+                    <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-xl font-semibold">🎁 Active Promotions</h3>
+                        {!isLoadingPromotions && promotions.length > 0 && (
+                            <span className="text-sm text-[var(--color-text-secondary)]">
+                                {promotions.length} active promotion{promotions.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+
+                    {isLoadingPromotions ? (
+                        <div className="text-center py-8">
+                            <div className="text-[var(--color-text-secondary)]">
+                                Loading promotions{toolState.selectedClient ? ` for ${toolState.selectedClient}` : ''}...
+                            </div>
+                        </div>
+                    ) : (
+                        <GoogleAdsPromotionsTile promotions={promotions} />
                     )}
                 </div>
 

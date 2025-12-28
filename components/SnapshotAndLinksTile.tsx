@@ -29,13 +29,10 @@ interface SnapshotAndLinksTileProps {
     storeChanges: StoreChangesRecord | null;
 }
 
-const DetailItem: React.FC<{ label: string; value: string; icon: string; valueColorClass?: string }> = ({ label, value, icon, valueColorClass = 'text-[var(--color-text-primary)]' }) => (
-    <div className="bg-[var(--color-card-bg)] p-4 flex items-center gap-3">
-        <span className="text-2xl">{icon}</span>
-        <div>
-            <p className="text-sm text-[var(--color-text-secondary)]">{label}</p>
-            <p className={`font-bold text-xl ${valueColorClass}`}>{value}</p>
-        </div>
+const DetailItem: React.FC<{ label: string; value: string; valueColorClass?: string }> = ({ label, value, valueColorClass = 'text-[var(--color-text-primary)]' }) => (
+    <div className="bg-[var(--color-card-bg)] p-4">
+        <p className="text-sm text-[var(--color-text-secondary)] mb-1">{label}</p>
+        <p className={`font-bold text-xl ${valueColorClass}`}>{value}</p>
     </div>
 );
 
@@ -72,10 +69,10 @@ const SnapshotAndLinksTile: React.FC<SnapshotAndLinksTileProps> = ({ clientData,
             <div className="w-3/5 flex flex-col pr-6">
                 {currentMonthData ? (
                     <div className="flex-grow grid grid-cols-2 gap-px bg-[var(--color-border)] rounded-lg overflow-hidden">
-                        <DetailItem label="Revenue" icon="💰" value={formatCurrency(currentMonthData.Revenue)} />
-                        <DetailItem label="Orders" icon="📦" value={formatNumber(currentMonthData.Orders)} />
-                        <DetailItem label="Profit" icon="💵" value={formatCurrency(currentMonthData.Profit)} valueColorClass="text-[var(--color-positive)]" />
-                        <DetailItem label="Canceled" icon="❌" value={formatPercentage(currentMonthData.Canceled)} valueColorClass="text-[var(--color-negative)]" />
+                        <DetailItem label="Revenue" value={formatCurrency(currentMonthData.Revenue)} />
+                        <DetailItem label="Orders" value={formatNumber(currentMonthData.Orders)} />
+                        <DetailItem label="Profit" value={formatCurrency(currentMonthData.Profit)} valueColorClass="text-[var(--color-positive)]" />
+                        <DetailItem label="Canceled" value={formatPercentage(currentMonthData.Canceled)} valueColorClass="text-[var(--color-negative)]" />
                     </div>
                 ) : (
                     <div className="flex-grow flex items-center justify-center text-center text-[var(--color-text-secondary)] bg-[var(--color-card-bg)] rounded-lg">

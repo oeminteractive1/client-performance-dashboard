@@ -26,6 +26,8 @@ const allTools = {
     category_page_creator: { icon: '🗂️', title: 'Category Page Creator', description: 'Create a category page and map products to it.' },
     product_availability: { icon: '💡', title: 'Product Availability Tool', description: 'Set parts as available or not for sale.' },
     bing_ads_playground: { icon: '🔎', title: 'Bing Ads Playground', description: 'Manage campaigns, view performance metrics, and adjust budgets.' },
+    google_analytics_playground: { icon: '📊', title: 'Google Analytics Playground', description: 'View traffic by medium, landing pages, and device performance.' },
+    merchant_center_playground: { icon: '🛒', title: 'Merchant Center Playground', description: 'View product feed health, performance metrics, and manage products.' },
 };
 
 // Define the categories and which tools belong to them
@@ -43,6 +45,17 @@ const toolCategories = [
         ].sort((a, b) => allTools[a as keyof typeof allTools].title.localeCompare(allTools[b as keyof typeof allTools].title)),
     },
     {
+        key: 'playgrounds',
+        title: 'Playgrounds',
+        icon: '🧪',
+        tools: [
+            'google_ads_robot',
+            'bing_ads_playground',
+            'google_analytics_playground',
+            'merchant_center_playground',
+        ].sort((a, b) => allTools[a as keyof typeof allTools].title.localeCompare(allTools[b as keyof typeof allTools].title)),
+    },
+    {
         key: 'workflow',
         title: 'Workflows',
         icon: '⚙️',
@@ -50,8 +63,6 @@ const toolCategories = [
             'polaris_msrp_updater',
             'custom_titles',
             'strategy_notes',
-            'google_ads_robot',
-            'bing_ads_playground',
             'bulk_url_opener',
             'tag_creator',
             'search_page_creator',

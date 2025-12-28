@@ -107,13 +107,13 @@ const TopOrganicPerformanceTile: React.FC<TopOrganicPerformanceTileProps> = ({ d
     const topQueries = React.useMemo(() => parseTopQueries(data.Top_10_Queries), [data.Top_10_Queries]);
     
     return (
-        <div className="flex flex-col md:flex-row gap-4 h-full">
-            <PerformanceList 
+        <div className="flex flex-col gap-4 h-full p-6 overflow-hidden">
+            <PerformanceList
                 title="Top Clicks by Page"
                 items={topClicks}
                 baseUrl={accountDetails?.Website}
             />
-            <PerformanceList 
+            <PerformanceList
                 title="Top Search Queries"
                 items={topQueries}
             />

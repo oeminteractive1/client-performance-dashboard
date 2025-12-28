@@ -1,11 +1,15 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { ClientDataRecord, AccountDetailsRecord, AllItemsInFeedData, ItemsInFeedDataPoint, Theme, AllFeedStatusData, AllPercentApprovedData, AllStoreStatusData, AllStoreChangesData, AllBudgetStatusData, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, AllRevolutionLinksData, GoogleSearchConsoleRecord, AllGoogleSearchConsoleData, PercentApprovedRecord, GoogleAnalyticsRecord, AllGoogleAnalyticsData, GoogleAdsRecord, AllGoogleAdsData, BingAdsRecord, AllBingAdsData, StoreChangesRecord, HistoryState, AllToolStates, AllCurrentStatusData, CurrentStatusRecord, FeedStatus, StoreStatusRecord as StoreStatusRecordType, NoteRecord, UserRecord } from './types';
+import { ClientDataRecord, AccountDetailsRecord, AllItemsInFeedData, ItemsInFeedDataPoint, Theme, AllFeedStatusData, AllPercentApprovedData, AllStoreStatusData, AllStoreChangesData, AllBudgetStatusData, BudgetStatusRecord, KeyContactRecord, RevolutionLinksRecord, AllRevolutionLinksData, GoogleSearchConsoleRecord, AllGoogleSearchConsoleData, PercentApprovedRecord, GoogleAnalyticsRecord, AllGoogleAnalyticsData, GoogleAdsRecord, AllGoogleAdsData, BingAdsRecord, AllBingAdsData, StoreChangesRecord, HistoryState, AllToolStates, AllCurrentStatusData, CurrentStatusRecord, FeedStatus, StoreStatusRecord as StoreStatusRecordType, NoteRecord, UserRecord, AllMerchantCenterPromotions, MerchantCenterPromotion } from './types';
 import { themes } from './themes';
 import Dashboard from './components/Dashboard';
+import BetaDashboard from './components/BetaDashboard';
 import Login from './components/Login';
 import WelcomeScreen from './components/WelcomeScreen';
+import BetaWelcomeScreen from './components/BetaWelcomeScreen';
+import SidebarDock from './components/SidebarDock';
+import BetaHeader from './components/BetaHeader';
 import BudgetStatusTool from './components/BudgetStatusTool';
 import MetricComparisonTool from './components/RevenueTool';
 import CustomSeoTitlesTool from './components/CustomTitlesCsv';
@@ -29,6 +33,9 @@ import CategoryPageCreatorTool from './components/CategoryPageCreatorTool';
 import ProductAvailabilityTool from './components/ProductAvailabilityTool';
 import FileUploaderTool from './components/FileUploaderTool';
 import BingAdsPlayground from './components/BingAdsPlayground';
+import GoogleAnalyticsPlayground from './components/GoogleAnalyticsPlayground';
+import MerchantCenterPlayground from './components/MerchantCenterPlayground';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Hardcoded Google Sheets API Key for read-only operations.
 const API_KEY = 'AIzaSyC-XMGjEXrs4m9LU4wy1blZ9zdULZdILAo';
@@ -67,6 +74,8 @@ const TOOL_ROUTES: Record<string, string> = {
     'product_availability': '/tools/workflow/product-availability',
     'file_uploader': '/tools/workflow/file-uploader',
     'bing_ads_playground': '/tools/workflow/bing-ads-playground',
+    'google_analytics_playground': '/tools/workflow/google-analytics-playground',
+    'merchant_center_playground': '/tools/workflow/merchant-center-playground',
 };
 
 // Helper functions
@@ -96,6 +105,9 @@ const accountDetailsHeaderMapping: { [key: string]: keyof AccountDetailsRecord }
     'Bing': 'Bing',
     'AID': 'AID',
     'CID': 'CID',
+    'GA Property ID': 'PropertyID',
+    'Property ID': 'PropertyID',
+    'Google Analytics ID': 'PropertyID',
     'State': 'State',
     'ShippingMethods': 'ShippingMethods',
     'SignatureSurcharge': 'SignatureSurcharge',
@@ -373,6 +385,19 @@ const App: React.FC = () => {
     const [bingAdsSheetId, setBingAdsSheetId] = useState<string>(() => localStorage.getItem('bingAdsSheetId') || '1EYp-vsBxiio0HlBzJckp8J2B6YAXxvKfXGGdgJDNtqY');
     const [bingAdsSheetName, setBingAdsSheetName] = useState<string>(() => localStorage.getItem('bingAdsSheetName') || 'BingAds');
 
+    // State for Merchant Center Data
+    const [merchantCenterData, setMerchantCenterData] = useState<AllMerchantCenterData>({});
+    const [merchantCenterError, setMerchantCenterError] = useState<string>('');
+    const [isMerchantCenterLoading, setIsMerchantCenterLoading] = useState<boolean>(false);
+    const [merchantCenterMerchantId, setMerchantCenterMerchantId] = useState<string>(() =>
+        localStorage.getItem('merchantCenterMerchantId') || ''
+    );
+
+    // State for Merchant Center Promotions
+    const [merchantCenterPromotions, setMerchantCenterPromotions] = useState<AllMerchantCenterPromotions>({});
+    const [merchantCenterPromotionsError, setMerchantCenterPromotionsError] = useState<string>('');
+    const [isMerchantCenterPromotionsLoading, setIsMerchantCenterPromotionsLoading] = useState<boolean>(false);
+
     // State for Strategy Notes Data (pre-caching)
     const [strategyNotesData, setStrategyNotesData] = useState<NoteRecord[]>([]);
     const [isStrategyNotesLoading, setIsStrategyNotesLoading] = useState<boolean>(false);
@@ -389,6 +414,7 @@ const App: React.FC = () => {
     const [isThemeSelectorOpen, setIsThemeSelectorOpen] = useState(false);
     const [isConnectionsModalOpen, setIsConnectionsModalOpen] = useState(false);
     const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
+    const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
     // Alert & Tool system state
     const [isAlertsOpen, setIsAlertsOpen] = useState(false);
@@ -419,6 +445,38 @@ const App: React.FC = () => {
             return [...prev, toolId];
         });
     };
+
+    // Beta Mode State
+    const [isBetaMode, setIsBetaMode] = useState<boolean>(() => {
+        try {
+            const betaModeValue = localStorage.getItem('dashboard-beta-mode-enabled');
+            console.log('Beta mode from localStorage:', betaModeValue);
+            return betaModeValue === 'true';
+        } catch (e) {
+            console.error('Error reading beta mode:', e);
+            return false;
+        }
+    });
+
+    // Beta-specific quick links
+    const [betaQuickLinks, setBetaQuickLinks] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('beta-dashboard-dock-items');
+            return saved ? JSON.parse(saved) : ['client']; // Default: Client Dashboard only
+        } catch (e) {
+            return ['client'];
+        }
+    });
+
+    // Persist beta mode
+    useEffect(() => {
+        localStorage.setItem('dashboard-beta-mode-enabled', String(isBetaMode));
+    }, [isBetaMode]);
+
+    // Persist beta quick links
+    useEffect(() => {
+        localStorage.setItem('beta-dashboard-dock-items', JSON.stringify(betaQuickLinks));
+    }, [betaQuickLinks]);
 
     // State for collapsible sections
     const [isClientSelectorCollapsed, setIsClientSelectorCollapsed] = useState(false);
@@ -467,15 +525,16 @@ const App: React.FC = () => {
         category_page_creator: { selectedClient: '', selectedBrand: '', categoryName: '', h1: '', metaTitle: '', metaDescription: '', contentUrl: '', partNumbers: '' },
         product_availability: { selectedClient: '', selectedBrand: '', availability: 'Available for Sale', partNumbers: '' },
         file_uploader: {},
-        manager_dashboard: { 
-            role: 'All', 
-            manager: 'All Clients', 
-            revenueFilter: 'none', 
+        manager_dashboard: {
+            role: 'All',
+            manager: 'All Clients',
+            revenueFilter: 'none',
             comparisonMode: 'lastCompleted',
             isTrendVisible: true,
             isCurrentMonthVisible: true,
             columnOrder: ['clientName', 'currentRevenue', 'projectedRevenue', 'lastYearRevenue', 'lastMonthRevenue', 'threeMoTrend', 'avg3mo', 'sixMoTrend', 'avg6mo', 'twelveMoTrend', 'avg12mo']
         },
+        google_analytics_playground: { selectedClient: '', selectedPropertyId: '' },
     });
 
     const handleToolStateChange = <K extends keyof AllToolStates>(tool: K, newState: Partial<AllToolStates[K]>) => {
@@ -869,6 +928,35 @@ const App: React.FC = () => {
              setLoggedInUserName('');
         }
     };
+
+    // Beta Mode Toggle Handlers
+    const handleToggleBetaMode = useCallback(() => {
+        const newMode = !isBetaMode;
+
+        if (newMode && !isSignedIn) {
+            alert('Please sign in with Google to access Dashboard 2.0 Beta');
+            return;
+        }
+
+        // Set localStorage DIRECTLY before reload (don't rely on useEffect)
+        localStorage.setItem('dashboard-beta-mode-enabled', String(newMode));
+        console.log('Setting beta mode to:', newMode);
+        setIsBetaMode(newMode);
+        window.location.reload();
+    }, [isBetaMode, isSignedIn]);
+
+    const handleToggleBetaQuickLink = useCallback((toolId: string) => {
+        // Prevent removal of default Client Dashboard if it's the last item
+        if (toolId === 'client' && betaQuickLinks.includes('client') && betaQuickLinks.length === 1) {
+            return; // Cannot remove last/default icon
+        }
+
+        if (betaQuickLinks.includes(toolId)) {
+            setBetaQuickLinks(betaQuickLinks.filter(id => id !== toolId));
+        } else {
+            setBetaQuickLinks([...betaQuickLinks, toolId]);
+        }
+    }, [betaQuickLinks]);
 
 
     // Persist sheet settings
@@ -1920,6 +2008,179 @@ const App: React.FC = () => {
         }
     }, [bingAdsSheetId, bingAdsSheetName, genericSheetFetcher, processBingAdsData]);
 
+    const handleFetchMerchantCenterData = useCallback(async () => {
+        if (!merchantCenterMerchantId && !selectedClient) {
+            setMerchantCenterError('Please provide a valid Merchant Center Merchant ID.');
+            return false;
+        }
+
+        setIsMerchantCenterLoading(true);
+        setMerchantCenterError('');
+
+        try {
+            // Get client's GMC ID from account details if available
+            const clientGmcId = accountDetailsData?.[selectedClient]?.GMC || merchantCenterMerchantId;
+
+            if (!clientGmcId) {
+                setMerchantCenterError('No Merchant ID found for this client.');
+                return false;
+            }
+
+            // Fetch performance and feed status in parallel
+            const [perfResponse, feedResponse] = await Promise.all([
+                fetch('http://localhost:3002/api/merchant-center/product-performance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merchantId: clientGmcId,
+                        dateRange: '30' // Last 30 days
+                    })
+                }),
+                fetch('http://localhost:3002/api/merchant-center/feed-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        merchantId: clientGmcId
+                    })
+                })
+            ]);
+
+            const perfData = await perfResponse.json();
+            const feedData = await feedResponse.json();
+
+            if (!perfData.success || !feedData.success) {
+                throw new Error(perfData.error || feedData.error || 'Failed to fetch Merchant Center data');
+            }
+
+            // Update state
+            setMerchantCenterData(prev => ({
+                ...prev,
+                [selectedClient]: {
+                    performance: perfData.performance,
+                    feedStatus: feedData.feedStatus,
+                    lastFetched: new Date()
+                }
+            }));
+
+            return true;
+        } catch (err) {
+            setMerchantCenterError(err instanceof Error ? err.message : 'An unknown error occurred.');
+            return false;
+        } finally {
+            setIsMerchantCenterLoading(false);
+        }
+    }, [merchantCenterMerchantId, selectedClient, accountDetailsData]);
+
+    const handleFetchMerchantCenterPromotions = useCallback(async () => {
+        if (!merchantCenterMerchantId) {
+            setMerchantCenterPromotionsError('Please provide a Merchant ID in Data Connections.');
+            return false;
+        }
+
+        if (!selectedClient) {
+            setMerchantCenterPromotionsError('Please select a client.');
+            return false;
+        }
+
+        setIsMerchantCenterPromotionsLoading(true);
+        setMerchantCenterPromotionsError('');
+
+        try {
+            // Use merchant ID from accountDetailsData if available
+            let merchantIdToUse = merchantCenterMerchantId;
+            if (accountDetailsData && accountDetailsData.length > 0) {
+                const clientDetails = accountDetailsData.find(c => c.ClientName === selectedClient);
+                if (clientDetails?.GMC) {
+                    merchantIdToUse = clientDetails.GMC;
+                }
+            }
+
+            const response = await fetch('http://localhost:3002/api/merchant-center/promotions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ merchantId: merchantIdToUse })
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to fetch promotions');
+            }
+
+            setMerchantCenterPromotions(prev => ({
+                ...prev,
+                [selectedClient]: data.promotions
+            }));
+
+            return true;
+        } catch (err) {
+            setMerchantCenterPromotionsError(err instanceof Error ? err.message : 'An unknown error occurred.');
+            return false;
+        } finally {
+            setIsMerchantCenterPromotionsLoading(false);
+        }
+    }, [merchantCenterMerchantId, selectedClient, accountDetailsData]);
+
+    const handleDeleteMerchantCenterPromotion = useCallback(async (promotionId: string) => {
+        if (!merchantCenterMerchantId || !selectedClient) {
+            throw new Error('Merchant ID or client not selected');
+        }
+
+        // Use merchant ID from accountDetailsData if available
+        let merchantIdToUse = merchantCenterMerchantId;
+        if (accountDetailsData && accountDetailsData.length > 0) {
+            const clientDetails = accountDetailsData.find(c => c.ClientName === selectedClient);
+            if (clientDetails?.GMC) {
+                merchantIdToUse = clientDetails.GMC;
+            }
+        }
+
+        const response = await fetch(`http://localhost:3002/api/merchant-center/promotions/${promotionId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ merchantId: merchantIdToUse })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to delete promotion');
+        }
+
+        // Refresh promotions list
+        await handleFetchMerchantCenterPromotions();
+    }, [merchantCenterMerchantId, selectedClient, accountDetailsData, handleFetchMerchantCenterPromotions]);
+
+    const handleUpdateMerchantCenterPromotion = useCallback(async (promotionId: string, promotion: Partial<MerchantCenterPromotion>) => {
+        if (!merchantCenterMerchantId || !selectedClient) {
+            throw new Error('Merchant ID or client not selected');
+        }
+
+        // Use merchant ID from accountDetailsData if available
+        let merchantIdToUse = merchantCenterMerchantId;
+        if (accountDetailsData && accountDetailsData.length > 0) {
+            const clientDetails = accountDetailsData.find(c => c.ClientName === selectedClient);
+            if (clientDetails?.GMC) {
+                merchantIdToUse = clientDetails.GMC;
+            }
+        }
+
+        const response = await fetch(`http://localhost:3002/api/merchant-center/promotions/${promotionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ merchantId: merchantIdToUse, promotion })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to update promotion');
+        }
+
+        // Refresh promotions list
+        await handleFetchMerchantCenterPromotions();
+    }, [merchantCenterMerchantId, selectedClient, accountDetailsData, handleFetchMerchantCenterPromotions]);
+
     const handleFetchUsersData = useCallback(async () => {
         if (!performanceSheetId) return false;
         try {
@@ -2011,6 +2272,7 @@ const App: React.FC = () => {
             handleFetchGoogleAnalyticsData,
             handleFetchGoogleAdsData,
             handleFetchBingAdsData,
+            handleFetchMerchantCenterData,
             handleFetchUsersData
         ];
         
@@ -2040,7 +2302,7 @@ const App: React.FC = () => {
         handleFetchItemsInFeedData, handleFetchFeedStatusData, handleFetchPercentApprovedData,
         handleFetchStoreStatusData, handleFetchStoreChangesData, handleFetchBudgetStatusData,
         handleFetchRevolutionLinksData, handleFetchGoogleSearchConsoleData, handleFetchGoogleAnalyticsData,
-        handleFetchGoogleAdsData, handleFetchBingAdsData, handleFetchUsersData
+        handleFetchGoogleAdsData, handleFetchBingAdsData, handleFetchMerchantCenterData, handleFetchUsersData
     ]);
 
     useEffect(() => {
@@ -2279,6 +2541,16 @@ const App: React.FC = () => {
         return bingAdsData[selectedClient] || null;
     }, [bingAdsData, selectedClient]);
 
+    const merchantCenterForClient = useMemo(() => {
+        if (!selectedClient || !merchantCenterData) return null;
+        return merchantCenterData[selectedClient] || null;
+    }, [merchantCenterData, selectedClient]);
+
+    const merchantCenterPromotionsForClient = useMemo(() => {
+        if (!selectedClient || !merchantCenterPromotions) return null;
+        return merchantCenterPromotions[selectedClient] || null;
+    }, [merchantCenterPromotions, selectedClient]);
+
     const getHeaderTitle = () => {
         if (currentPath === TOOL_ROUTES.client && selectedClient) return ``;
         if (currentPath === TOOL_ROUTES.multi_client) return ``;
@@ -2292,6 +2564,8 @@ const App: React.FC = () => {
         if (currentPath === TOOL_ROUTES.bulk_url_opener) return `Bulk URL Opener Tool`;
         if (currentPath === TOOL_ROUTES.strategy_notes) return 'Strategy Notes Viewer';
         if (currentPath === TOOL_ROUTES.google_ads_robot) return 'Google Ads Playground';
+        if (currentPath === TOOL_ROUTES.google_analytics_playground) return 'Google Analytics Playground';
+        if (currentPath === TOOL_ROUTES.merchant_center_playground) return 'Merchant Center Playground';
         if (currentPath === TOOL_ROUTES.polaris_msrp_updater) return 'Polaris MSRP Updater';
         if (currentPath === TOOL_ROUTES.tag_creator) return 'Tag Creator';
         if (currentPath === TOOL_ROUTES.search_page_creator) return 'Search Page Creator';
@@ -2450,6 +2724,11 @@ const App: React.FC = () => {
                     googleAnalyticsData={googleAnalyticsForClient}
                     googleAdsData={googleAdsForClient}
                     bingAdsData={bingAdsForClient}
+                    merchantCenterData={merchantCenterForClient}
+                    merchantCenterPromotions={merchantCenterPromotionsForClient}
+                    onFetchMerchantCenterPromotions={handleFetchMerchantCenterPromotions}
+                    onDeleteMerchantCenterPromotion={handleDeleteMerchantCenterPromotion}
+                    onUpdateMerchantCenterPromotion={handleUpdateMerchantCenterPromotion}
                     isModalOpen={isDashboardModalOpen}
                     setIsModalOpen={setIsDashboardModalOpen}
                 />
@@ -2709,7 +2988,58 @@ const App: React.FC = () => {
                                     {bingAdsError && <div className="bg-[var(--color-negative-bg)] border border-[var(--color-negative)] text-[var(--color-negative)] p-3 rounded-lg text-sm mt-4" role="alert">{bingAdsError}</div>}
                                 </div>
 
-                                {/* 15. Users Data */}
+                                {/* 15. Google Merchant Center */}
+                                <div className="border-b border-white/20 pb-8">
+                                    <h3 className="text-xl font-bold text-[var(--color-accent-secondary)] mb-4">Google Merchant Center Integration</h3>
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">Merchant Center Merchant ID</label>
+                                            <input
+                                                type="text"
+                                                value={merchantCenterMerchantId}
+                                                onChange={e => setMerchantCenterMerchantId(e.target.value)}
+                                                placeholder="e.g., 123456789"
+                                                className="w-full bg-[var(--color-input-bg)] border border-[var(--color-input-border)] text-[var(--color-text-primary)] text-sm rounded-lg p-2.5"
+                                            />
+                                            <p className="text-xs text-[var(--color-text-secondary)] mt-1">
+                                                Or configure GMC ID in Account Details "GMC" column
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 flex gap-4">
+                                        <button
+                                            onClick={() => handleFetchMerchantCenterData()}
+                                            disabled={isMerchantCenterLoading}
+                                            className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 text-white font-bold py-2 px-6 rounded-lg"
+                                        >
+                                            {isMerchantCenterLoading ? 'Fetching...' : 'Fetch Feed & Performance'}
+                                        </button>
+                                        <button
+                                            onClick={() => handleFetchMerchantCenterPromotions()}
+                                            disabled={isMerchantCenterPromotionsLoading}
+                                            className="bg-[var(--color-accent-secondary)] hover:brightness-90 disabled:opacity-50 text-white font-bold py-2 px-6 rounded-lg"
+                                        >
+                                            {isMerchantCenterPromotionsLoading ? 'Fetching...' : 'Fetch Promotions'}
+                                        </button>
+                                    </div>
+                                    {merchantCenterError && (
+                                        <div className="text-red-500 text-sm mt-4">{merchantCenterError}</div>
+                                    )}
+                                    {merchantCenterPromotionsError && (
+                                        <div className="text-red-500 text-sm mt-4">{merchantCenterPromotionsError}</div>
+                                    )}
+                                    <div className="mt-4 text-xs text-[var(--color-text-secondary)]">
+                                        <p className="font-semibold mb-1">Setup Instructions:</p>
+                                        <ol className="list-decimal list-inside space-y-1">
+                                            <li>Enable Merchant API in Google Cloud Console</li>
+                                            <li>Uses same service account as Google Analytics (ga-service-account.json)</li>
+                                            <li>Grant service account access to Merchant Center (Settings → Users)</li>
+                                            <li>Add Merchant ID to Account Details "GMC" column or enter above</li>
+                                        </ol>
+                                    </div>
+                                </div>
+
+                                {/* 16. Users Data */}
                                 <div className="pb-8">
                                     <h3 className="text-xl font-bold text-[var(--color-accent-secondary)] mb-4">Google Sheets Connection for Users Data</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2729,7 +3059,143 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
-            
+
+            {(() => {
+                console.log('Rendering with isBetaMode:', isBetaMode);
+                return isBetaMode;
+            })() ? (
+                // === BETA MODE LAYOUT ===
+                <div className="flex flex-col h-screen bg-[var(--color-bg-primary)]">
+                    <div className="flex flex-col h-screen max-w-[1920px] mx-auto w-full px-24 pt-20 pb-4 relative">
+                    {/* Header - Full width */}
+                    <BetaHeader
+                        currentPath={currentPath}
+                        selectedClient={selectedClient}
+                        clients={clients}
+                        onSelectClient={updateSelectedClient}
+                        selectedAutoGroup={selectedAutoGroup}
+                        autoGroups={autoGroups}
+                        onSelectAutoGroup={updateSelectedAutoGroup}
+                        onNavigate={handleSelectToolAndClose}
+                        onSignOut={handleSignOut}
+                        isSignedIn={isSignedIn}
+                        userName={loggedInUserName}
+                        onToggleBetaMode={handleToggleBetaMode}
+                        keyContactForClient={keyContactForClient}
+                        onOpenDataConnections={() => setIsConnectionsModalOpen(true)}
+                        onOpenDashboardCustomization={() => setIsDashboardModalOpen(true)}
+                        onOpenThemes={() => setIsThemeModalOpen(true)}
+                        quickLinks={betaQuickLinks}
+                        onToggleQuickLink={handleToggleBetaQuickLink}
+                        closedStores={closedStores}
+                        recentChanges={recentChanges}
+                        oldFeeds={oldFeeds}
+                        alertCount={alertCount}
+                        onSelectClientFromAlert={handleSelectClientFromToolView}
+                    />
+
+                    {/* Absolute Dock - vertically centered, moves with container */}
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 z-[100] max-h-[calc(100vh-180px)] overflow-y-auto">
+                        <SidebarDock
+                            quickLinks={betaQuickLinks}
+                            onSelectTool={handleSelectToolAndClose}
+                            onToggleQuickLink={handleToggleBetaQuickLink}
+                        />
+                    </div>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto bg-[var(--color-bg-primary)] pt-12 pb-6 px-16 relative">
+                        {/* Content - tiles aligned with taskbar */}
+                        <div>
+                            <Routes>
+                                <Route path="/" element={
+                                    <BetaWelcomeScreen
+                                        onSelectTool={handleSelectToolAndClose}
+                                        allPerformanceData={allData}
+                                        allAccountDetails={accountDetailsData}
+                                        userName={loggedInUserName}
+                                    />
+                                } />
+                                <Route path={TOOL_ROUTES.client} element={
+                                    <BetaDashboard
+                                        clientData={clientData}
+                                        lastUpdated={lastUpdated}
+                                        accountDetails={accountDetailsForClient}
+                                        keyContact={keyContactForClient}
+                                        itemsInFeedData={itemsInFeedForClient}
+                                        theme={currentTheme}
+                                        feedStatus={feedStatusForClient}
+                                        percentApprovedData={percentApprovedForClient}
+                                        storeStatus={storeStatusForClient}
+                                        currentStatus={currentStatusForClient}
+                                        onUpdateCurrentStatus={handleUpdateCurrentStatus}
+                                        storeChanges={storeChangesForClient}
+                                        budgetStatus={budgetStatusForClient}
+                                        revolutionLinks={revolutionLinksForClient}
+                                        googleSearchConsoleData={googleSearchConsoleForClient}
+                                        googleAnalyticsData={googleAnalyticsForClient}
+                                        googleAdsData={googleAdsForClient}
+                                        bingAdsData={bingAdsForClient}
+                                        merchantCenterData={merchantCenterForClient}
+                                        merchantCenterPromotions={merchantCenterPromotionsForClient}
+                                        onFetchMerchantCenterPromotions={handleFetchMerchantCenterPromotions}
+                                        onDeleteMerchantCenterPromotion={handleDeleteMerchantCenterPromotion}
+                                        onUpdateMerchantCenterPromotion={handleUpdateMerchantCenterPromotion}
+                                        isModalOpen={isDashboardModalOpen}
+                                        setIsModalOpen={setIsDashboardModalOpen}
+                                    />
+                                } />
+                                {/* Other dashboards */}
+                                <Route path={TOOL_ROUTES.multi_client} element={<MultiClientDashboard selectedAutoGroup={selectedAutoGroup} allData={allData} allAccountDetails={accountDetailsData} />} />
+                                <Route path={TOOL_ROUTES.manager_dashboard} element={<ManagerDashboard allPerformanceData={allData} allAccountDetails={accountDetailsData} allKeyContactsData={keyContactsData} onSelectClient={handleSelectClientFromToolView} theme={currentTheme} toolState={toolStates.manager_dashboard} onStateChange={(newState) => handleToolStateChange('manager_dashboard', newState)} />} />
+
+                                {/* Analysis Tools */}
+                                <Route path="/tools/analysis/budget-status" element={<BudgetStatusTool allAccountDetails={accountDetailsData} allBudgetStatusData={budgetStatusData} allKeyContactsData={keyContactsData} onSelectClient={handleSelectClientFromToolView} toolState={toolStates.budget_status} onStateChange={(newState) => handleToolStateChange('budget_status', newState)} />} />
+                                <Route path="/tools/analysis/revenue" element={<MetricComparisonTool allPerformanceData={allData} allAccountDetails={accountDetailsData} allKeyContactsData={keyContactsData} onSelectClient={handleSelectClientFromToolView} theme={currentTheme} toolState={toolStates.revenue_tool} onStateChange={(newState) => handleToolStateChange('revenue_tool', newState)} />} />
+                                <Route path="/tools/analysis/brand-comparison" element={<BrandComparisonTool allPerformanceData={allData} allAccountDetails={accountDetailsData} allGoogleAdsData={googleAdsData} allBudgetStatusData={budgetStatusData} theme={currentTheme} allGoogleAnalyticsData={googleAnalyticsData} toolState={toolStates.brand_comparison} onStateChange={(newState) => handleToolStateChange('brand_comparison', newState)} />} />
+                                <Route path="/tools/analysis/feed-health" element={<FeedHealthTool allAccountDetails={accountDetailsData} allFeedStatusData={feedStatusData} allPercentApprovedData={percentApprovedData} allRevolutionLinksData={revolutionLinksData} allItemsInFeedData={itemsInFeedData} theme={currentTheme} toolState={toolStates.feed_health} onStateChange={(newState) => handleToolStateChange('feed_health', newState)} />} />
+                                <Route path="/tools/analysis/medium-comparison" element={<MediumComparisonTool allGoogleAnalyticsData={googleAnalyticsData} theme={currentTheme} allAccountDetails={accountDetailsData} toolState={toolStates.medium_comparison} onStateChange={(newState) => handleToolStateChange('medium_comparison', newState)} />} />
+
+                                {/* Workflow Tools */}
+                                <Route path="/tools/workflow/seo-titles" element={<CustomSeoTitlesTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} gapiClient={gapiClient} isSignedIn={isSignedIn} mainSheetId={performanceSheetId} toolState={toolStates.custom_titles} onStateChange={(newState) => handleToolStateChange('custom_titles', newState)} />} />
+                                <Route path="/tools/workflow/bulk-url" element={<BulkUrlOpenerTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.bulk_url_opener} onStateChange={(newState) => handleToolStateChange('bulk_url_opener', newState)} />} />
+                                <Route path="/tools/workflow/strategy-notes" element={<StrategyNotesTool allKeyContactsData={keyContactsData} onSelectClient={handleSelectClientFromToolView} toolState={toolStates.strategy_notes} onStateChange={(newState) => handleToolStateChange('strategy_notes', newState)} gapiClient={gapiClient} isSignedIn={isSignedIn} notesData={strategyNotesData} isLoading={isStrategyNotesLoading} error={strategyNotesError} onRefresh={handleFetchStrategyNotes} onUpdateNoteLocally={handleUpdateStrategyNoteLocally} />} />
+                                <Route path="/tools/workflow/google-ads-robot" element={<GoogleAdsRobotTool allAccountDetails={accountDetailsData} allBudgetStatusData={budgetStatusData} gapiClient={gapiClient} isSignedIn={isSignedIn} toolState={toolStates.google_ads_robot} onStateChange={(newState) => handleToolStateChange('google_ads_robot', newState)} />} />
+                                <Route path="/tools/workflow/polaris-msrp" element={<PolarisMSRPUpdater gapiClient={gapiClient} isSignedIn={isSignedIn} />} />
+                                <Route path="/tools/workflow/tag-creator" element={<TagCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.tag_creator} onStateChange={(newState) => handleToolStateChange('tag_creator', newState)} />} />
+                                <Route path="/tools/workflow/search-page-creator" element={<SearchPageCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.search_page_creator} onStateChange={(newState) => handleToolStateChange('search_page_creator', newState)} />} />
+                                <Route path="/tools/workflow/free-shipping" element={<FreeShippingTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.free_shipping_tool} onStateChange={(newState) => handleToolStateChange('free_shipping_tool', newState)} />} />
+                                <Route path="/tools/workflow/category-page-creator" element={<CategoryPageCreatorTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.category_page_creator} onStateChange={(newState) => handleToolStateChange('category_page_creator', newState)} />} />
+                                <Route path="/tools/workflow/product-availability" element={<ProductAvailabilityTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.product_availability} onStateChange={(newState) => handleToolStateChange('product_availability', newState)} />} />
+                                <Route path="/tools/workflow/file-uploader" element={<FileUploaderTool gapiClient={gapiClient} />} />
+                                <Route path="/tools/workflow/bing-ads-playground" element={<BingAdsPlayground allAccountDetails={accountDetailsData} />} />
+                                <Route path="/tools/workflow/google-analytics-playground" element={
+                                    <ErrorBoundary>
+                                        <GoogleAnalyticsPlayground allAccountDetails={accountDetailsData} toolState={toolStates.google_analytics_playground} onStateChange={(newState) => handleToolStateChange('google_analytics_playground', newState)} />
+                                    </ErrorBoundary>
+                                } />
+                                <Route path="/tools/workflow/merchant-center-playground" element={<MerchantCenterPlayground allAccountDetails={accountDetailsData} />} />
+
+                                {/* Fallback */}
+                                <Route path="*" element={<Navigate to="/" replace />} />
+                            </Routes>
+                        </div>
+                    </main>
+
+                    {/* Theme Modal */}
+                    {isThemeModalOpen && (
+                        <ThemeSelector
+                            themes={themes}
+                            currentTheme={currentTheme}
+                            setTheme={setCurrentTheme}
+                            onClose={() => setIsThemeModalOpen(false)}
+                        />
+                    )}
+                    </div>
+                </div>
+            ) : (
+                // === DASHBOARD 1.0 LAYOUT (CURRENT) ===
+                <>
             <header className="sticky-header bg-gradient-to-r from-[var(--color-bg-secondary)] to-[var(--color-bg-primary)]">
                 <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-20">
                     <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -2963,6 +3429,13 @@ const App: React.FC = () => {
                         </div>
                         <button onClick={() => setIsConnectionsModalOpen(true)} className="bg-slate-600 hover:bg-slate-500 text-white p-2.5 rounded-lg transition-colors" title="Data Connections"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg></button>
                         <button onClick={() => setIsThemeSelectorOpen(true)} className="bg-slate-600 hover:bg-slate-500 text-white p-2.5 rounded-lg transition-colors" title="Change Theme"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg></button>
+                        <button
+                            onClick={handleToggleBetaMode}
+                            className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg transition-colors text-sm font-semibold"
+                            title="Try Dashboard 2.0 Beta"
+                        >
+                            ✨ Try Beta
+                        </button>
                         <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">
                             Logout
                         </button>
@@ -3006,11 +3479,15 @@ const App: React.FC = () => {
                     <Route path="/tools/workflow/product-availability" element={<ProductAvailabilityTool allAccountDetails={accountDetailsData} allRevolutionLinksData={revolutionLinksData} toolState={toolStates.product_availability} onStateChange={(newState) => handleToolStateChange('product_availability', newState)} />} />
                     <Route path="/tools/workflow/file-uploader" element={<FileUploaderTool gapiClient={gapiClient} />} />
                     <Route path="/tools/workflow/bing-ads-playground" element={<BingAdsPlayground allAccountDetails={accountDetailsData} />} />
+                    <Route path="/tools/workflow/google-analytics-playground" element={<GoogleAnalyticsPlayground allAccountDetails={accountDetailsData} toolState={toolStates.google_analytics_playground} onStateChange={(newState) => handleToolStateChange('google_analytics_playground', newState)} />} />
+                    <Route path="/tools/workflow/merchant-center-playground" element={<MerchantCenterPlayground allAccountDetails={accountDetailsData} />} />
 
                     {/* Fallback */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </main>
+                </>
+            )}
         </div>
     );
 };

@@ -12,12 +12,10 @@ declare const XLSX: any;
 declare const Chart: any;
 declare const window: any; // For jspdf access
 
-interface WelcomeScreenProps {
+interface BetaWelcomeScreenProps {
     onSelectTool: (tool: string) => void;
     allPerformanceData?: ClientDataRecord[];
     allAccountDetails?: AccountDetailsRecord[];
-    quickLinks: string[];
-    setQuickLinks: (links: string[]) => void;
     userName?: string;
 }
 
@@ -161,7 +159,7 @@ const isLayoutStacked = (layout: any[]) => {
     return itemsInCol0 === layout.length;
 };
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerformanceData = [], allAccountDetails = [], quickLinks, setQuickLinks, userName }) => {
+const BetaWelcomeScreen: React.FC<BetaWelcomeScreenProps> = ({ onSelectTool, allPerformanceData = [], allAccountDetails = [], userName }) => {
     
     const [viewMode, setViewMode] = useState<ViewMode>('month');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
@@ -179,7 +177,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
 
     // --- CONFIGS ---
     // Important: Ensure these match the props passed to ResponsiveGridLayout
-    const QUICK_LINKS_COLS = { lgCols: 4, mdCols: 4, smCols: 2 };
     const METRICS_COLS = { lgCols: 4, mdCols: 2, smCols: 1 };
 
     // Leaderboard State
@@ -189,7 +186,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
     ];
     const [visibleLeaderboards, setVisibleLeaderboards] = useState<string[]>(() => {
         try {
-            const saved = localStorage.getItem('welcome-leaderboards-visible-v3');
+            const saved = localStorage.getItem('beta-welcome-leaderboards-visible-v3');
             return saved ? JSON.parse(saved) : defaultVisibleLeaderboards;
         } catch {
             return defaultVisibleLeaderboards;
@@ -203,7 +200,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
     const defaultVisibleNotableMetrics = ['revenue', 'orders', 'aov', 'convRate'];
     const [visibleNotableMetrics, setVisibleNotableMetrics] = useState<string[]>(() => {
         try {
-            const saved = localStorage.getItem('welcome-notable-metrics-v2');
+            const saved = localStorage.getItem('beta-welcome-notable-metrics-v2');
             return saved ? JSON.parse(saved) : defaultVisibleNotableMetrics;
         } catch {
             return defaultVisibleNotableMetrics;
@@ -213,9 +210,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
     const notableMenuRef = useRef<HTMLDivElement>(null);
 
     // Layout States - Version bumped to force clean state
-    const LEADERBOARD_LAYOUT_KEY = 'welcome-screen-leaderboard-layout-v22';
-    const NOTABLE_LAYOUT_KEY = 'welcome-screen-notable-layout-v23';
-    const QUICK_LINKS_LAYOUT_KEY = 'welcome-quick-links-layout-v24';
+    const LEADERBOARD_LAYOUT_KEY = 'beta-welcome-screen-leaderboard-layout-v22';
+    const NOTABLE_LAYOUT_KEY = 'beta-welcome-screen-notable-layout-v23';
 
     // Initialize Layouts - Check validity immediately on load
     const initializeLayout = (key: string, items: string[], colsConfig: any) => {
@@ -236,14 +232,12 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
 
     const [leaderboardLayouts, setLeaderboardLayouts] = useState(() => initializeLayout(LEADERBOARD_LAYOUT_KEY, visibleLeaderboards, METRICS_COLS));
     const [notableLayouts, setNotableLayouts] = useState(() => initializeLayout(NOTABLE_LAYOUT_KEY, visibleNotableMetrics, METRICS_COLS));
-    const [quickLinksLayouts, setQuickLinksLayouts] = useState(() => initializeLayout(QUICK_LINKS_LAYOUT_KEY, quickLinks, QUICK_LINKS_COLS));
 
     // Persistence Effects
     useEffect(() => { localStorage.setItem(LEADERBOARD_LAYOUT_KEY, JSON.stringify(leaderboardLayouts)); }, [leaderboardLayouts]);
     useEffect(() => { localStorage.setItem(NOTABLE_LAYOUT_KEY, JSON.stringify(notableLayouts)); }, [notableLayouts]);
-    useEffect(() => { localStorage.setItem(QUICK_LINKS_LAYOUT_KEY, JSON.stringify(quickLinksLayouts)); }, [quickLinksLayouts]);
-    useEffect(() => { localStorage.setItem('welcome-notable-metrics-v2', JSON.stringify(visibleNotableMetrics)); }, [visibleNotableMetrics]);
-    useEffect(() => { localStorage.setItem('welcome-leaderboards-visible-v3', JSON.stringify(visibleLeaderboards)); }, [visibleLeaderboards]);
+    useEffect(() => { localStorage.setItem('beta-welcome-notable-metrics-v2', JSON.stringify(visibleNotableMetrics)); }, [visibleNotableMetrics]);
+    useEffect(() => { localStorage.setItem('beta-welcome-leaderboards-visible-v3', JSON.stringify(visibleLeaderboards)); }, [visibleLeaderboards]);
 
     // Self-healing: If layout appears totally stacked (bug from race condition), reset it
     // Only run this check if we are on a screen wide enough to support columns
@@ -251,20 +245,14 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
         const timer = setTimeout(() => {
             const isWide = window.innerWidth >= 768;
             if (isWide) {
-                if (isLayoutStacked(quickLinksLayouts.lg)) setQuickLinksLayouts(generateRobustLayouts(quickLinks, QUICK_LINKS_COLS));
                 if (isLayoutStacked(leaderboardLayouts.lg)) setLeaderboardLayouts(generateRobustLayouts(visibleLeaderboards, METRICS_COLS));
                 if (isLayoutStacked(notableLayouts.lg)) setNotableLayouts(generateRobustLayouts(visibleNotableMetrics, METRICS_COLS));
             }
         }, 500);
         return () => clearTimeout(timer);
-    }, [quickLinks, visibleLeaderboards, visibleNotableMetrics]);
+    }, [visibleLeaderboards, visibleNotableMetrics]);
 
     // Sync Quick Links prop with Layout state - STRICT REGENERATION
-    useEffect(() => {
-        // Instead of trying to patch the layout, REGENERATE it to ensure left-to-right flow
-        // This fixes gaps and prevents stacking issues when items are added
-        setQuickLinksLayouts(generateRobustLayouts(quickLinks, QUICK_LINKS_COLS));
-    }, [quickLinks]);
 
     // Populate brands list on load
     useEffect(() => {
@@ -311,7 +299,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
 
     const onLeaderboardLayoutChange = (l: any, all: any) => handleLayoutChange(setLeaderboardLayouts, visibleLeaderboards, METRICS_COLS)(l, all);
     const onNotableLayoutChange = (l: any, all: any) => handleLayoutChange(setNotableLayouts, visibleNotableMetrics, METRICS_COLS)(l, all);
-    const onQuickLinksLayoutChange = (l: any, all: any) => handleLayoutChange(setQuickLinksLayouts, quickLinks, QUICK_LINKS_COLS)(l, all);
 
     const handleToggleNotableMetric = (key: string) => {
         let newMetrics;
@@ -670,12 +657,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
     };
 
     // Toggle Quick Link
-    const toggleQuickLink = (toolId: string) => {
-        if (quickLinks.includes(toolId)) {
-            setQuickLinks(quickLinks.filter(id => id !== toolId));
-        } else {
-            setQuickLinks([...quickLinks, toolId]);
-        }
     };
 
     const LeaderboardTile: React.FC<{ 
@@ -904,41 +885,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
                 <h1 className="text-4xl font-bold text-[var(--color-text-primary)] mb-2">Welcome Back{userName ? ` ${userName}!` : ''}</h1>
             </div>
             
-            {/* Quick Links Section */}
-            <section className="mb-12">
-                 <h2 className="text-2xl text-center font-semibold text-[var(--color-text-primary)] mb-6">Quick Links</h2>
-                 <ResponsiveGridLayout
-                    className="layout"
-                    layouts={quickLinksLayouts}
-                    onLayoutChange={onQuickLinksLayoutChange}
-                    breakpoints={{lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0}}
-                    cols={{lg: QUICK_LINKS_COLS.lgCols, md: QUICK_LINKS_COLS.mdCols, sm: QUICK_LINKS_COLS.smCols, xs: 1, xxs: 1}}
-                    rowHeight={180} // Approximate height of the cards
-                    draggableHandle=".drag-handle"
-                    isResizable={true}
-                    isDraggable={true}
-                 >
-                    {quickLinks.map(key => {
-                        const tool = ALL_TOOLS[key];
-                        if (!tool) return null;
-                        return (
-                            <div key={key}>
-                                <ChartGridItem title={tool.title} onRemove={() => toggleQuickLink(key)}>
-                                    <div onClick={() => onSelectTool(key)} className="cursor-pointer h-full flex flex-col items-center justify-center text-center p-2 hover:bg-white/5 rounded-lg transition-colors">
-                                        <div className="text-4xl mb-3">{tool.icon}</div>
-                                        <p className="text-sm text-[var(--color-text-secondary)]">{tool.description}</p>
-                                    </div>
-                                </ChartGridItem>
-                            </div>
-                        );
-                    })}
-                 </ResponsiveGridLayout>
-                 {quickLinks.length === 0 && (
-                     <div className="text-center text-[var(--color-text-secondary)] bg-black/20 p-8 rounded-lg max-w-4xl mx-auto border border-dashed border-[var(--color-border)]">
-                         <p>No Quick Links selected. Add tools from the top menu.</p>
-                     </div>
-                 )}
-            </section>
 
             <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-6">
                 <div className="flex items-center gap-3">
@@ -1040,7 +986,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
                 className="layout"
                 layouts={leaderboardLayouts}
                 onLayoutChange={onLeaderboardLayoutChange}
-                breakpoints={{lg: 900, md: 700, sm: 500, xs: 400, xxs: 0}}
+                breakpoints={{lg: 1600, md: 1200, sm: 768, xs: 480, xxs: 0}}
                 cols={{lg: METRICS_COLS.lgCols, md: METRICS_COLS.mdCols, sm: METRICS_COLS.smCols, xs: 1, xxs: 1}}
                 rowHeight={260}
                 draggableHandle=".drag-handle"
@@ -1125,7 +1071,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
                 className="layout"
                 layouts={notableLayouts}
                 onLayoutChange={onNotableLayoutChange}
-                breakpoints={{lg: 900, md: 700, sm: 500, xs: 400, xxs: 0}}
+                breakpoints={{lg: 1600, md: 1200, sm: 768, xs: 480, xxs: 0}}
                 cols={{lg: METRICS_COLS.lgCols, md: METRICS_COLS.mdCols, sm: METRICS_COLS.smCols, xs: 1, xxs: 1}}
                 rowHeight={260}
                 draggableHandle=".drag-handle"
@@ -1159,4 +1105,4 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectTool, allPerforma
     );
 };
 
-export default WelcomeScreen;
+export default BetaWelcomeScreen;

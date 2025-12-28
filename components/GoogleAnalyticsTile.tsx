@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { GoogleAnalyticsRecord, Theme } from '../types';
 import ChartWrapper from './ChartWrapper';
 
@@ -11,6 +11,7 @@ interface GoogleAnalyticsTileProps {
     trendData: GoogleAnalyticsRecord[] | null;
     timeRange: TimeRange;
     theme: Theme;
+    dataType: DataType;
 }
 
 const formatCurrency = (value: number) => {
@@ -34,18 +35,17 @@ const formatPercentageAsRate = (value: number) => {
 };
 
 
-const GoogleAnalyticsTile: React.FC<GoogleAnalyticsTileProps> = ({ view, snapshotData, trendData, timeRange, theme }) => {
-    const [dataType, setDataType] = useState<DataType>('revenue');
+const GoogleAnalyticsTile: React.FC<GoogleAnalyticsTileProps> = ({ view, snapshotData, trendData, timeRange, theme, dataType }) => {
 
     const snapshotMemo = useMemo(() => {
         if (!snapshotData) return { mediums: [], totalValue: 0, chartConfig: null };
 
-        const { 
-            Revenue, Sessions, Orders, ConvRate,
-            RevenuePercentOrganic, RevenuePercentDirect, RevenuePercentPPC, RevenuePercentReferral,
-            SessionsPercentOrganic, SessionsPercentDirect, SessionsPercentPPC, SessionsPercentReferral,
-            OrdersPercentOrganic, OrdersPercentDirect, OrdersPercentPPC, OrdersPercentReferral,
-            ConvRatePercentOrganic, ConvRatePercentDirect, ConvRatePercentPPC, ConvRatePercentReferral,
+        const {
+            Revenue = 0, Sessions = 0, Orders = 0, ConvRate = 0,
+            RevenuePercentOrganic = 0, RevenuePercentDirect = 0, RevenuePercentPPC = 0, RevenuePercentReferral = 0,
+            SessionsPercentOrganic = 0, SessionsPercentDirect = 0, SessionsPercentPPC = 0, SessionsPercentReferral = 0,
+            OrdersPercentOrganic = 0, OrdersPercentDirect = 0, OrdersPercentPPC = 0, OrdersPercentReferral = 0,
+            ConvRatePercentOrganic = 0, ConvRatePercentDirect = 0, ConvRatePercentPPC = 0, ConvRatePercentReferral = 0,
         } = snapshotData;
         
         const orderedColors = [
@@ -194,7 +194,7 @@ const GoogleAnalyticsTile: React.FC<GoogleAnalyticsTileProps> = ({ view, snapsho
 
         return { labels, datasets, monthlyTotals };
 
-    }, [trendData, timeRange, theme, dataType]);
+    }, [trendData, timeRange, dataType]);
 
     if (view === 'snapshot') {
         const { mediums, totalValue, chartConfig } = snapshotMemo;
@@ -211,67 +211,52 @@ const GoogleAnalyticsTile: React.FC<GoogleAnalyticsTileProps> = ({ view, snapsho
         }
 
         const totalLabel = dataType === 'revenue' ? 'Total Revenue' : dataType === 'sessions' ? 'Total Sessions' : dataType === 'orders' ? 'Total Orders' : 'Overall CVR';
-        const dataButtons: {key: DataType, label: string}[] = [
-            { key: 'revenue', label: 'Revenue' },
-            { key: 'sessions', label: 'Sessions' },
-            { key: 'orders', label: 'Orders' },
-            { key: 'convRate', label: 'Conv. Rate' },
-        ];
 
         return (
-            <div className="flex flex-col md:flex-row h-full items-center gap-8 p-4">
-                <div className="relative h-64 w-64 flex-shrink-0">
-                    <ChartWrapper type="doughnut" data={chartConfig} options={chartOptions as any} />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-                        <span className="text-4xl font-bold text-[var(--color-text-primary)]">
-                             {dataType === 'revenue' ? formatCurrency(totalValue)
-                                : dataType === 'convRate' ? formatPercentageAsRate(totalValue)
-                                : formatNumber(totalValue)
-                            }
-                        </span>
-                        <span className="text-sm text-[var(--color-text-secondary)] mt-1">{totalLabel}</span>
-                    </div>
-                </div>
-    
-                <div className="flex-grow w-full">
-                    <div className="grid grid-cols-2 gap-2 mb-6">
-                        {dataButtons.map(button => (
-                             <button 
-                                key={button.key}
-                                onClick={() => setDataType(button.key)} 
-                                className={`w-full text-center px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${dataType === button.key ? 'bg-[var(--color-accent)] text-white' : 'bg-black/20 text-[var(--color-text-secondary)] hover:bg-white/10'}`}>
-                                {button.label}
-                            </button>
-                        ))}
+            <div className="flex flex-col h-full overflow-hidden p-6">
+                <div className="flex-1 flex flex-col md:flex-row gap-6 min-h-0 overflow-auto items-center justify-center">
+                    <div className="relative h-56 w-56 flex-shrink-0 mx-auto md:mx-0">
+                        <ChartWrapper type="doughnut" data={chartConfig} options={chartOptions as any} />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                            <span className="text-3xl font-bold text-[var(--color-text-primary)]">
+                                 {dataType === 'revenue' ? formatCurrency(totalValue)
+                                    : dataType === 'convRate' ? formatPercentageAsRate(totalValue)
+                                    : formatNumber(totalValue)
+                                }
+                            </span>
+                            <span className="text-xs text-[var(--color-text-secondary)] mt-1">{totalLabel}</span>
+                        </div>
                     </div>
 
-                    <ul className="space-y-4">
-                        {mediums.map((medium: any, index: number) => (
-                            <li key={index} className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: medium.color }}></span>
-                                    <span className="text-md font-semibold text-[var(--color-text-primary)]">{medium.name}</span>
-                                </div>
-                                <div className="text-right">
-                                    {dataType === 'convRate' ? (
-                                        <>
-                                            <p className="font-bold text-md text-[var(--color-text-primary)]">{formatPercentageAsRate(medium.value)}</p>
-                                            <p className="text-xs text-[var(--color-text-secondary)]">
-                                                {`${formatNumber(medium.orders)} ${Math.round(medium.orders) === 1 ? 'Order' : 'Orders'}`}
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <p className="font-bold text-md text-[var(--color-text-primary)]">{formatPercentage(medium.displayPercent)}</p>
-                                            <p className="text-xs text-[var(--color-text-secondary)]">
-                                                {dataType === 'revenue' ? formatCurrency(medium.value) : formatNumber(medium.value)}
-                                            </p>
-                                        </>
-                                    )}
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
+                    <div className="flex-1 min-w-0">
+                        <ul className="space-y-3">
+                            {mediums.map((medium: any, index: number) => (
+                                <li key={index} className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: medium.color }}></span>
+                                        <span className="text-sm font-semibold text-[var(--color-text-primary)]">{medium.name}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        {dataType === 'convRate' ? (
+                                            <>
+                                                <p className="font-bold text-sm text-[var(--color-text-primary)]">{formatPercentageAsRate(medium.value)}</p>
+                                                <p className="text-xs text-[var(--color-text-secondary)]">
+                                                    {formatNumber(medium.orders)}
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="font-bold text-sm text-[var(--color-text-primary)]">{formatPercentage(medium.displayPercent)}</p>
+                                                <p className="text-xs text-[var(--color-text-secondary)]">
+                                                    {dataType === 'revenue' ? formatCurrency(medium.value) : formatNumber(medium.value)}
+                                                </p>
+                                            </>
+                                        )}
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 </div>
             </div>
         );
@@ -298,6 +283,7 @@ const GoogleAnalyticsTile: React.FC<GoogleAnalyticsTileProps> = ({ view, snapsho
             plugins: {
                 legend: { position: 'bottom' as const, labels: { color: theme.colors['--color-text-secondary'], padding: 20, } },
                 tooltip: {
+                    enabled: true,
                     callbacks: {
                         label: function(context: any) {
                             let label = context.dataset.label || '';
